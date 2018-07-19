@@ -167,3 +167,49 @@ class AppendEntriesResult
 	new create() =>
 		term = 0
 		success = false
+
+// -- snapshot
+
+class InstallSnapshotRequest
+	"""
+	Invoked by the leader to send chunks of a snapshot to a follower.
+
+	Leaders always send chunks in order.
+
+	# Receiver implementation:
+	1. Reply immediately if term < currentTerm
+	2. Create new snapshot file if first chunk (offset is 0)
+	3. Write data into snapshot file at given offset
+	4. Reply and wait for more data chunks if done is false
+	5. Save snapshot file, discard any existing or partial snapshot with a smaller index
+	6. If existing log entry has same index and term as snapshot’s last included entry,
+	   retain log entries following it and reply
+	7. Discard the entire log
+	8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
+	"""
+
+	// Leader's term
+	var term: U64
+
+	// Leader ID so that the follower can redirect clients
+	var leader_id: U16
+
+	// The last included index (the snapshot replaces all entries up through to and including this index)
+	var last_included_index: U64
+
+	// The term of the last included index
+	var last_included_term: U64
+
+	// Flag set to true if this is the last chunk
+	var done: Bool
+
+	// Byte offset where the chunk is positioned in the snapshot file
+	var offset: U64
+
+	// Raw byte data of the snapshot chunk, starting at the given offset
+	embed data: Array[U8]
+
+class InstallSnapshotResponse
+
+	// Current term, for the leader to update itself
+	var term: U64
