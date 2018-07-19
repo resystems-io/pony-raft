@@ -18,6 +18,7 @@ actor RaftTests is TestList
 
 
 class iso Ping
+	""" Sent by the client to fetch a new counter from the server. """
 
 	let expect: U64
 	let pinger: Pinger
@@ -27,6 +28,7 @@ class iso Ping
 		pinger = _pinger
 
 class iso Pong
+	""" Sent by the server to along with a new counter. """
 
 	let expect: U64
 	let counter: U64
@@ -47,32 +49,54 @@ actor Pinger
 	// Ping messages will hold the Pinger actor reference for the Ponger to reply to
 
 	let _replica: RaftServer[PingCommand]
+	let _env: Env
 
 	var _run: Bool
+	var _expect: U64
 
-	new create(replica: RaftServer[PingCommand]) =>
+	new create(replica: RaftServer[PingCommand], env: Env) =>
 		_replica = replica
+		_env = env
 		_run = true
+		_expect = 0
 
 	be stop() =>
 		_run = false
+		_env.out.print("Stopping pinger.")
 
 	be go() =>
-		None
+		if _run then
+			_env.out.print("Sending ping: " + _expect.string())
+			_replica.accept(Ping(_expect, this))
+		end
 
 	be validate(pong: Pong iso) =>
-		None
+		if pong.expect == pong.counter then
+			// yay, got the expected count
+			_env.out.print("Yay! " + pong.expect.string())
+		else
+			// urg, got an unexpected value
+			_env.out.print("Urg! " + pong.expect.string() + " != " + pong.counter.string())
+		end
+		// maybe a pause should be scheduled...
+		go()
 
 class iso Ponger is StateMachine[PingCommand]
 	""" Ping/Pong server state machine. """
 
+	let _env: Env
+
 	var _counter: U64
 
-	new iso create() =>
+	new iso create(env: Env) =>
+		_env = env
 		_counter = 0
 
-	fun accept(command: PingCommand) =>
-		None
+	fun ref accept(command: PingCommand) =>
+		_env.out.print("Ponger state machine received ping: " + command.expect.string())
+		_counter = _counter + 1
+		let pong: Pong = Pong(command.expect, _counter)
+		command.pinger.validate(consume pong)
 
 class iso _TestPingPong is UnitTest
 	"""Tests basic life-cycle. """
@@ -104,9 +128,9 @@ class iso _TestPingPong is UnitTest
 		let net: Network[PingCommand] = Network[PingCommand]
 
 		// create the individual server
-		let r1: RaftServer[PingCommand] = RaftServer[PingCommand](1, Ponger, net, [as U16: 1;2;3] )
-		let r2: RaftServer[PingCommand] = RaftServer[PingCommand](2, Ponger, net, [as U16: 1;2;3] )
-		let r3: RaftServer[PingCommand] = RaftServer[PingCommand](3, Ponger, net, [as U16: 1;2;3] )
+		let r1: RaftServer[PingCommand] = RaftServer[PingCommand](1, Ponger(h.env), net, [as U16: 1;2;3] )
+		let r2: RaftServer[PingCommand] = RaftServer[PingCommand](2, Ponger(h.env), net, [as U16: 1;2;3] )
+		let r3: RaftServer[PingCommand] = RaftServer[PingCommand](3, Ponger(h.env), net, [as U16: 1;2;3] )
 
 		// announce the severs on the network
 		net.register(1, r1)
@@ -114,6 +138,9 @@ class iso _TestPingPong is UnitTest
 		net.register(3, r3)
 
 		// start sending ping commands
-		let pinger: Pinger = Pinger(r2)
+		let pinger: Pinger = Pinger(r2, h.env)
+
+		pinger.go()
+		pinger.stop()
 
 		h.assert_true(true)

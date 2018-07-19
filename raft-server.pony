@@ -28,7 +28,7 @@ use "collections"
 // server.state_machine -> clients -> ø
 
 interface StateMachine[T: Any #send]
-	fun accept(command: T) => None
+	fun ref accept(command: T) => None
 
 actor Raft[T: Any #send]
 	"""
