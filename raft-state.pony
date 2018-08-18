@@ -209,7 +209,19 @@ class InstallSnapshotRequest
 	// Raw byte data of the snapshot chunk, starting at the given offset
 	embed data: Array[U8]
 
+	new create() =>
+		term = 0
+		leader_id = 0
+		last_included_index = 0
+		last_included_term = 0
+		done = false
+		offset = 0
+		data = Array[U8](0)
+
 class InstallSnapshotResponse
 
 	// Current term, for the leader to update itself
 	var term: U64
+
+	new create() =>
+		term = 0
