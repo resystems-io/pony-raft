@@ -125,9 +125,10 @@ class iso _TestPingPong is UnitTest
 
 	fun ref apply(h: TestHelper) =>
 
+		// create a network for linking the servers
 		let net: Network[PingCommand] = Network[PingCommand]
 
-		// create the individual server
+		// create the individual servers
 		let r1: RaftServer[PingCommand] = RaftServer[PingCommand](1, Ponger(h.env), net, [as U16: 1;2;3] )
 		let r2: RaftServer[PingCommand] = RaftServer[PingCommand](2, Ponger(h.env), net, [as U16: 1;2;3] )
 		let r3: RaftServer[PingCommand] = RaftServer[PingCommand](3, Ponger(h.env), net, [as U16: 1;2;3] )
@@ -138,6 +139,8 @@ class iso _TestPingPong is UnitTest
 		net.register(3, r3)
 
 		// start sending ping commands
+		// (this client happens to be talking to raft server 2)
+		// (in future we might have the client talk via the 'Raft' that selects a server)
 		let pinger: Pinger = Pinger(r2, h.env)
 
 		pinger.go()

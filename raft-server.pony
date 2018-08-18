@@ -2,7 +2,7 @@ use "collections"
 
 // # Raft state transitions
 //
-//   _start_   |---[starts up]---> Follower
+//   _start_   |---[starts up]---------------------------------> Follower
 //   Follower  |---[times out, starts election]----------------> Candidate
 //   Candidate |---[times out, new election]-------------------> Candidate
 //   Candidate |---[discovers current leader or new term]------> Follower
@@ -28,6 +28,11 @@ use "collections"
 // server.state_machine -> clients -> ø
 
 interface StateMachine[T: Any #send]
+	"""
+	A statemachine manages the internal state transitions that are specific to the
+	application logic. A raft essentially drives the state machine once the event
+	messages are committed to the journal.
+	"""
 	fun ref accept(command: T) => None
 
 actor Raft[T: Any #send]
@@ -79,12 +84,24 @@ actor Network[T: Any #send]
 		end
 
 actor RaftServer[T: Any #send]
+	"""
+	Each raft server runs concurrently and coordinates with the other servers in the raft.
+	This coordination then manages the server consensus states (leader/follower/candidate).
+	Additionally, the server maintains the log in the persistent state. Finally, the server
+	delegates committed log entries to the application specific state machine.
+
+	The servers in the raft communicate via the network.
+
+	The application state machine can then communicate directly with clients. Whereas,
+	clients would communicate with one of the raft servers (and not with the application
+	state machine).
+	"""
 
 	let _network: Network[T]
 	let _id: U16
 	let _peers: Array[U16]
-	let _machine: StateMachine[T] iso
-	let persistent: PersistentServerState[T]
+	let _machine: StateMachine[T] iso					// implements the application logic
+	let persistent: PersistentServerState[T]	// holds the log
 	let volatile: VolatileServerState
 	var leader: (VolatileLeaderState | None)
 
