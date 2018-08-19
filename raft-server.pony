@@ -35,6 +35,15 @@ interface StateMachine[T: Any #send]
 	"""
 	fun ref accept(command: T) => None
 
+interface tag RaftMonitor[T: Any #send]
+
+	be dropped(message: T) => None
+
+	be backpressure(factor: U16) => None // zero if full rate can be handled, higher otherwise
+
+	be reconfigure(term: U64, size: U16) => None // number of servers in the raft and leader term
+		// (signals that a new vote was carried out)
+
 actor Raft[T: Any #send]
 	"""
 	The raft acts as a gateway for sending commands to a server.
@@ -59,7 +68,13 @@ actor Raft[T: Any #send]
 	//   - backpressure
 	//   - dropped messages?
 
-	be accept(command: T) => None
+	new create() => None
+
+	be accept(command: T, ttlMillis: U32 = 0) => None
+
+	be monitor(m: RaftMonitor[T]) => None
+
+	be unmonitor(m: RaftMonitor[T]) => None
 
 actor Network[T: Any #send]
 	"""
@@ -67,6 +82,9 @@ actor Network[T: Any #send]
 
 	The servers are identified via a single U16 identifier.
 	"""
+
+	// TODO implement mechanisms to produce backpressure from the network
+	// TODO decide how backpressure at different layers translates and combines
 
 	let _registry: Map[U16, RaftServer[T]]
 
