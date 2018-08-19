@@ -1,4 +1,5 @@
 use "collections"
+use "time"
 
 // # Raft state transitions
 //
@@ -36,6 +37,8 @@ interface StateMachine[T: Any #send]
 	fun ref accept(command: T) => None
 
 interface tag RaftMonitor[T: Any #send]
+
+	// TODO should replies be sent via the monitor? Or directly or via something else?
 
 	be dropped(message: T) => None
 
@@ -101,6 +104,16 @@ actor Network[T: Any #send]
 			None // dropped
 		end
 
+primitive Follower
+primitive Candidate
+primitive Leader
+
+type RaftMode is (Follower | Candidate | Leader)
+
+primitive ElectionTimeout
+
+type RaftTimeout is (ElectionTimeout)
+
 actor RaftServer[T: Any #send]
 	"""
 	Each raft server runs concurrently and coordinates with the other servers in the raft.
@@ -122,6 +135,9 @@ actor RaftServer[T: Any #send]
 	let persistent: PersistentServerState[T]	// holds the log
 	let volatile: VolatileServerState
 	var leader: (VolatileLeaderState | None)
+
+	var _mode: RaftMode
+	var _lastKnownLeader: U16
 
 	new create(id: U16, machine: StateMachine[T] iso, network: Network[T], peers: Array[U16] val) =>
 		_id = id
@@ -145,9 +161,47 @@ actor RaftServer[T: Any #send]
 		persistent = PersistentServerState[T]
 		volatile = VolatileServerState
 		leader = None
+		_lastKnownLeader = 0
+		_mode = Follower
+		_start_follower()
+
+	fun ref _start_follower() =>
+		// set up timeout for append-entries heart beat
+		// TODO
+		//
+		_mode = Follower
+		None
+
+	fun ref _start_candidate() =>
+		_mode = Candidate
+
+	fun ref _start_leader() =>
+		_mode = Leader
 
 	be accept(command: T) =>
 		""" Accept a new command from a client. """
+		match _mode
+		| Follower	=> _accept_follower(consume command)
+		| Candidate	=> _accept_candidate(consume command)
+		| Leader		=> _accept_leader(consume command)
+		end
+
+	fun ref _accept_follower(command: T) =>
+		// follower  - redirect command to the leader
+		//             (leader will reply, leader may provide backpressure)
+		None
+
+	fun ref _accept_candidate(command: T) =>
+		// candidate - queue the command until transitioning to being a leader or follower
+		//             (honour ttl and generate dropped message signals)
+		//             (send backpressure if the queue gets too large)
+		//             (batch queued message to the leader)
+		None
+
+	fun ref _accept_leader(command: T) =>
+		// leader    - apply commands to the journal log and distribute them to followers
+		//             (may generate backpressure if the nextIndex vs matchedIndex vs log
+		//              starts to get too large)
 		None
 
 	be append(update: AppendEntriesRequest[T] val) =>
