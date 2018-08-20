@@ -4,6 +4,7 @@
  * vim: set ts=2 sw=0:
  */
 use "ponytest"
+use "time"
 
 actor RaftTests is TestList
 
@@ -117,7 +118,11 @@ class iso _TestPingPong is UnitTest
 	// Later we will need to simulate node failures by causing the server to loose
 	// non-persistent state.
 
-	new iso create() => None
+
+	let _timers: Timers
+
+	new iso create() =>
+		_timers = Timers
 
 	fun name(): String => "raft:pingpong"
 
@@ -129,9 +134,9 @@ class iso _TestPingPong is UnitTest
 		let net: Network[PingCommand] = Network[PingCommand]
 
 		// create the individual servers
-		let r1: RaftServer[PingCommand] = RaftServer[PingCommand](1, Ponger(h.env), net, [as U16: 1;2;3] )
-		let r2: RaftServer[PingCommand] = RaftServer[PingCommand](2, Ponger(h.env), net, [as U16: 1;2;3] )
-		let r3: RaftServer[PingCommand] = RaftServer[PingCommand](3, Ponger(h.env), net, [as U16: 1;2;3] )
+		let r1: RaftServer[PingCommand] = RaftServer[PingCommand](1, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
+		let r2: RaftServer[PingCommand] = RaftServer[PingCommand](2, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
+		let r3: RaftServer[PingCommand] = RaftServer[PingCommand](3, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
 
 		// announce the severs on the network
 		net.register(1, r1)

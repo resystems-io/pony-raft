@@ -128,6 +128,7 @@ actor RaftServer[T: Any #send]
 	state machine).
 	"""
 
+	let _timers: Timers
 	let _network: Network[T]
 	let _id: U16
 	let _peers: Array[U16]
@@ -138,9 +139,11 @@ actor RaftServer[T: Any #send]
 
 	var _mode: RaftMode
 	var _lastKnownLeader: U16
+	var _mode_timer: Timer tag
 
-	new create(id: U16, machine: StateMachine[T] iso, network: Network[T], peers: Array[U16] val) =>
+	new create(id: U16, machine: StateMachine[T] iso, timers: Timers, network: Network[T], peers: Array[U16] val) =>
 		_id = id
+		_timers = timers
 		_network = network
 
 		// copy peers but remove self
@@ -162,21 +165,45 @@ actor RaftServer[T: Any #send]
 		volatile = VolatileServerState
 		leader = None
 		_lastKnownLeader = 0
+		// raft servers start as followers
+		let mt: Timer iso = Timer(object iso is TimerNotify end, 200_000_000, 200_000_000) // 200ms
+		_mode_timer = mt
 		_mode = Follower
 		_start_follower()
 
 	fun ref _start_follower() =>
-		// set up timeout for append-entries heart beat
-		// TODO
-		//
 		_mode = Follower
+		// cancel any previous timers
+		_timers.cancel(_mode_timer)
+
+		// create a timer to become a candidate if no append-entries heart beat is received
+		// TODO need to randomise the timeout
+		let mt: Timer iso = Timer(object iso is TimerNotify end, 200_000_000, 200_000_000) // 200ms
+		_mode_timer = mt
+		_timers(consume mt)
 		None
 
 	fun ref _start_candidate() =>
 		_mode = Candidate
+		// cancel any previous timers
+		_timers.cancel(_mode_timer)
+
+		// create a timer for an election timeout to start a new election
+		// TODO need to randomise the timeout
+		let mt: Timer iso = Timer(object iso is TimerNotify end, 200_000_000, 200_000_000) // 200ms
+		_mode_timer = mt
+		_timers(consume mt)
 
 	fun ref _start_leader() =>
 		_mode = Leader
+		// cancel any previous timers
+		_timers.cancel(_mode_timer)
+
+		// set up timer to send out for append-entries heart beat
+		// TODO
+		let mt: Timer iso = Timer(object iso is TimerNotify end, 500_000_000, 500_000_000) // 500ms
+		_mode_timer = mt
+		_timers(consume mt)
 
 	be accept(command: T) =>
 		""" Accept a new command from a client. """
