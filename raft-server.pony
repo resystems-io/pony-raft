@@ -75,6 +75,8 @@ actor Raft[T: Any #send]
 
 	be accept(command: T, ttlMillis: U32 = 0) => None
 
+	// TODO add a register/unregister mechanism for adding replicas to the raft
+
 	be monitor(m: RaftMonitor[T]) => None
 
 	be unmonitor(m: RaftMonitor[T]) => None
@@ -101,6 +103,7 @@ actor Network[T: Any #send]
 		try
 			_registry(id)?.accept(consume msg)
 		else
+			// TODO implement a network monitor
 			None // dropped
 		end
 
@@ -115,11 +118,13 @@ primitive ElectionTimeout
 type RaftTimeout is (ElectionTimeout)
 
 actor RaftServer[T: Any #send]
+
 	"""
 	Each raft server runs concurrently and coordinates with the other servers in the raft.
 	This coordination then manages the server consensus states (leader/follower/candidate).
 	Additionally, the server maintains the log in the persistent state. Finally, the server
-	delegates committed log entries to the application specific state machine.
+	delegates committed log entries, containing commands of type T, to the application
+	specific state machine.
 
 	The servers in the raft communicate via the network.
 
@@ -140,6 +145,8 @@ actor RaftServer[T: Any #send]
 	var _mode: RaftMode
 	var _lastKnownLeader: U16
 	var _mode_timer: Timer tag
+
+	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
 	new create(id: U16, machine: StateMachine[T] iso, timers: Timers, network: Network[T], peers: Array[U16] val) =>
 		_id = id

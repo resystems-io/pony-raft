@@ -1,6 +1,6 @@
 /**
  * Pony Raft Library
- * Copyright (c) 2017 - Stewart Gebbie. Licensed under the MIT licence.
+ * Copyright (c) 2019 - Stewart Gebbie. Licensed under the MIT licence.
  * vim: set ts=2 sw=0:
  */
 use "ponytest"
@@ -131,12 +131,15 @@ class iso _TestPingPong is UnitTest
 	fun ref apply(h: TestHelper) =>
 
 		// create a network for linking the servers
+		// FIXME the network need to be able to carry raft commands and not just client commands
 		let net: Network[PingCommand] = Network[PingCommand]
 
 		// create the individual servers
 		let r1: RaftServer[PingCommand] = RaftServer[PingCommand](1, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
 		let r2: RaftServer[PingCommand] = RaftServer[PingCommand](2, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
 		let r3: RaftServer[PingCommand] = RaftServer[PingCommand](3, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
+
+		// FIXME need to inform each replica server of the other servers in the group
 
 		// announce the severs on the network
 		net.register(1, r1)
@@ -146,9 +149,12 @@ class iso _TestPingPong is UnitTest
 		// start sending ping commands
 		// (this client happens to be talking to raft server 2)
 		// (in future we might have the client talk via the 'Raft' that selects a server)
+		// FIXME need to rather send commands via a Raft than directly to the RaftServer replica
 		let pinger: Pinger = Pinger(r2, h.env)
 
 		pinger.go()
 		pinger.stop()
+
+		// FIXME need to test that the client actuall got a pong for every ping
 
 		h.assert_true(true)
