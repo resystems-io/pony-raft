@@ -17,6 +17,7 @@ use "time"
 // # Raft architecture
 //
 // a. clients
+//   i. raft proxy
 // b. server
 //   i. consensus module
 //   ii. log
@@ -35,77 +36,6 @@ interface StateMachine[T: Any #send]
 	messages are committed to the journal.
 	"""
 	fun ref accept(command: T) => None
-
-interface tag RaftMonitor[T: Any #send]
-
-	// TODO should replies be sent via the monitor? Or directly or via something else?
-
-	be dropped(message: T) => None
-
-	be backpressure(factor: U16) => None // zero if full rate can be handled, higher otherwise
-
-	be reconfigure(term: U64, size: U16) => None // number of servers in the raft and leader term
-		// (signals that a new vote was carried out)
-
-actor Raft[T: Any #send]
-	"""
-	The raft acts as a gateway for sending commands to a server.
-
-	Each client will maintain its own local "Raft".
-	"""
-
-	// The strategy for selecting a server can be one of round robin,
-	// or following of redirects.
-	//
-	// More specifically, we will contact the last-known-good server
-	// based on redirects. However, if there is no "good" server, then
-	// we will round robin.
-	//
-	// Note, we are _not_ attempting to handle retries. That is, while
-	// the servers may have failed comms between them, we are not trying
-	// to handle the case where the client can not reach a given server.
-	//
-	// The messages may simply be dropped. However, the raft may notify
-	// the clients, asynchronously of:
-	//   - leader updates
-	//   - backpressure
-	//   - dropped messages?
-
-	new create() => None
-
-	be accept(command: T, ttlMillis: U32 = 0) => None
-
-	// TODO add a register/unregister mechanism for adding replicas to the raft
-
-	be monitor(m: RaftMonitor[T]) => None
-
-	be unmonitor(m: RaftMonitor[T]) => None
-
-actor Network[T: Any #send]
-	"""
-	A network linking servers.
-
-	The servers are identified via a single U16 identifier.
-	"""
-
-	// TODO implement mechanisms to produce backpressure from the network
-	// TODO decide how backpressure at different layers translates and combines
-
-	let _registry: Map[U16, RaftServer[T]]
-
-	new create() =>
-		_registry = Map[U16, RaftServer[T]]
-
-	be register(id: U16, server: RaftServer[T]) =>
-		_registry(id) = server
-
-	be send(id: U16, msg: T) =>
-		try
-			_registry(id)?.accept(consume msg)
-		else
-			// TODO implement a network monitor
-			None // dropped
-		end
 
 primitive Follower
 primitive Candidate
