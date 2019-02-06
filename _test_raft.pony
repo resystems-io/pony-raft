@@ -49,13 +49,13 @@ actor Pinger
 	// Ping messages will be sent in response to pong replies.
 	// Ping messages will hold the Pinger actor reference for the Ponger to reply to
 
-	let _replica: RaftServer[PingCommand]
+	let _replica: Endpoint[PingCommand]
 	let _env: Env
 
 	var _run: Bool
 	var _expect: U64
 
-	new create(replica: RaftServer[PingCommand], env: Env) =>
+	new create(replica: Endpoint[PingCommand] tag, env: Env) =>
 		_replica = replica
 		_env = env
 		_run = true
@@ -120,37 +120,49 @@ class iso _TestPingPong is UnitTest
 
 
 	let _timers: Timers
+	let _net: Network[PingCommand]
+	var _r1: Endpoint[PingCommand]
+	var _r2: Endpoint[PingCommand]
+	var _r3: Endpoint[PingCommand]
 
 	new iso create() =>
 		_timers = Timers
+		// create a network for linking the servers
+		// FIXME the network need to be able to carry raft commands and not just client commands
+		_net = Network[PingCommand]
+		// create dummy servers
+		_r1 = NopEndpoint[PingCommand]
+		_r2 = NopEndpoint[PingCommand]
+		_r3 = NopEndpoint[PingCommand]
 
 	fun name(): String => "raft:pingpong"
 
-	fun tear_down(h: TestHelper) => None
+	fun ref set_up(h: TestHelper) =>
+		// create the individual server replicas
+		_r1 = RaftServer[PingCommand](1, Ponger(h.env), _timers, _net, [as U16: 1;2;3] )
+		_r2 = RaftServer[PingCommand](2, Ponger(h.env), _timers, _net, [as U16: 1;2;3] )
+		_r3 = RaftServer[PingCommand](3, Ponger(h.env), _timers, _net, [as U16: 1;2;3] )
+
+	fun ref tear_down(h: TestHelper) =>
+		// make sure to stop the servers
+		_r1.stop()
+		_r2.stop()
+		_r3.stop()
 
 	fun ref apply(h: TestHelper) =>
-
-		// create a network for linking the servers
-		// FIXME the network need to be able to carry raft commands and not just client commands
-		let net: Network[PingCommand] = Network[PingCommand]
-
-		// create the individual servers
-		let r1: RaftServer[PingCommand] = RaftServer[PingCommand](1, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
-		let r2: RaftServer[PingCommand] = RaftServer[PingCommand](2, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
-		let r3: RaftServer[PingCommand] = RaftServer[PingCommand](3, Ponger(h.env), _timers, net, [as U16: 1;2;3] )
 
 		// FIXME need to inform each replica server of the other servers in the group
 
 		// announce the severs on the network
-		net.register(1, r1)
-		net.register(2, r2)
-		net.register(3, r3)
+		_net.register(1, _r1)
+		_net.register(2, _r2)
+		_net.register(3, _r3)
 
 		// start sending ping commands
 		// (this client happens to be talking to raft server 2)
 		// (in future we might have the client talk via the 'Raft' that selects a server)
 		// FIXME need to rather send commands via a Raft than directly to the RaftServer replica
-		let pinger: Pinger = Pinger(r2, h.env)
+		let pinger: Pinger = Pinger(_r2, h.env)
 
 		pinger.go()
 		pinger.stop()
@@ -158,3 +170,5 @@ class iso _TestPingPong is UnitTest
 		// FIXME need to test that the client actuall got a pong for every ping
 
 		h.assert_true(true)
+
+		h.complete(true)

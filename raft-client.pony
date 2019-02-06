@@ -16,7 +16,8 @@ actor Raft[T: Any #send]
 	"""
 	The raft acts as a gateway for sending commands to a server.
 
-	Each client will maintain its own local "Raft".
+	There will be a 1-to-1 relationship between clients and "Rafts".
+	The "Raft" has knowledge of the raft servers.
 	"""
 
 	// The strategy for selecting a server can be one of round robin,

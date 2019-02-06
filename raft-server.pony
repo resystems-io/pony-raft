@@ -47,7 +47,7 @@ primitive ElectionTimeout
 
 type RaftTimeout is (ElectionTimeout)
 
-actor RaftServer[T: Any #send]
+actor RaftServer[T: Any #send] is Endpoint[T]
 
 	"""
 	Each raft server runs concurrently and coordinates with the other servers in the raft.
@@ -102,11 +102,35 @@ actor RaftServer[T: Any #send]
 		volatile = VolatileServerState
 		leader = None
 		_lastKnownLeader = 0
+
 		// raft servers start as followers
 		let mt: Timer iso = Timer(object iso is TimerNotify end, 200_000_000, 200_000_000) // 200ms
 		_mode_timer = mt
 		_mode = Follower
+
+		// start in follower mode
 		_start_follower()
+
+	be stop() =>
+		_timers.cancel(_mode_timer)
+
+	be accept(command: T) =>
+		""" Accept a new command from a client. """
+		match _mode
+		| Follower	=> _accept_follower(consume command)
+		| Candidate	=> _accept_candidate(consume command)
+		| Leader		=> _accept_leader(consume command)
+		end
+
+	be append(update: AppendEntriesRequest[T] val) =>
+		None
+
+	be vote(select: VoteRequest val) =>
+		None
+
+	// -- internals
+
+	// -- -- consensus module
 
 	fun ref _start_follower() =>
 		_mode = Follower
@@ -142,13 +166,7 @@ actor RaftServer[T: Any #send]
 		_mode_timer = mt
 		_timers(consume mt)
 
-	be accept(command: T) =>
-		""" Accept a new command from a client. """
-		match _mode
-		| Follower	=> _accept_follower(consume command)
-		| Candidate	=> _accept_candidate(consume command)
-		| Leader		=> _accept_leader(consume command)
-		end
+	// -- command ingress
 
 	fun ref _accept_follower(command: T) =>
 		// follower  - redirect command to the leader
@@ -168,8 +186,3 @@ actor RaftServer[T: Any #send]
 		//              starts to get too large)
 		None
 
-	be append(update: AppendEntriesRequest[T] val) =>
-		None
-
-	be vote(select: VoteRequest val) =>
-		None
