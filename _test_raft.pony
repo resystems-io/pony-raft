@@ -68,7 +68,7 @@ actor Pinger
 	be go() =>
 		if _run then
 			_env.out.print("Sending ping: " + _expect.string())
-			_replica.accept(Ping(_expect, this))
+			_replica(Ping(_expect, this))
 		end
 
 	be validate(pong: Pong val) =>
@@ -120,20 +120,20 @@ class iso _TestPingPong is UnitTest
 
 
 	let _timers: Timers
-	let _net: Network[PingCommand]
-	var _r1: Endpoint[PingCommand]
-	var _r2: Endpoint[PingCommand]
-	var _r3: Endpoint[PingCommand]
+	let _net: RaftNetwork[PingCommand]
+	var _r1: RaftEndpoint[PingCommand]
+	var _r2: RaftEndpoint[PingCommand]
+	var _r3: RaftEndpoint[PingCommand]
 
 	new iso create() =>
 		_timers = Timers
 		// create a network for linking the servers
 		// FIXME the network need to be able to carry raft commands and not just client commands
-		_net = Network[PingCommand]
+		_net = RaftNetwork[PingCommand]
 		// create dummy servers
-		_r1 = NopEndpoint[PingCommand]
-		_r2 = NopEndpoint[PingCommand]
-		_r3 = NopEndpoint[PingCommand]
+		_r1 = NopRaftEndpoint[PingCommand]
+		_r2 = NopRaftEndpoint[PingCommand]
+		_r3 = NopRaftEndpoint[PingCommand]
 
 	fun name(): String => "raft:pingpong"
 

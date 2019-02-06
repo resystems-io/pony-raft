@@ -8,10 +8,10 @@ interface tag Stoppable
 	be stop() => None
 
 interface tag Endpoint[T: Any #send] is Stoppable
-	be accept(msg: T) => None
+	be apply(msg: T) => None
 
 actor NopEndpoint[T: Any #send] is Endpoint[T]
-	be accept(msg: T) => None
+	be apply(msg: T) => None
 	be stop() => None
 
 actor Network[T: Any #send]
@@ -34,7 +34,7 @@ actor Network[T: Any #send]
 
 	be send(id: U16, msg: T) =>
 		try
-			_registry(id)?.accept(consume msg)
+			_registry(id)?.apply(consume msg)
 		else
 			// TODO implement a network monitor
 			None // dropped

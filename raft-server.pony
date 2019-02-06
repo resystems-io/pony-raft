@@ -29,6 +29,8 @@ use "time"
 // server.log -> server.state_machine
 // server.state_machine -> clients -> ø
 
+// -- parameterise the server
+
 interface StateMachine[T: Any #send]
 	"""
 	A statemachine manages the internal state transitions that are specific to the
@@ -37,17 +39,32 @@ interface StateMachine[T: Any #send]
 	"""
 	fun ref accept(command: T) => None
 
+// -- keep track of server mode
+
 primitive Follower
 primitive Candidate
 primitive Leader
 
 type RaftMode is (Follower | Candidate | Leader)
 
+// -- trigger timeout logic
+
 primitive ElectionTimeout
 
 type RaftTimeout is (ElectionTimeout)
 
-actor RaftServer[T: Any val] is Endpoint[T]
+// -- the transport
+
+type RaftNetwork[T: Any val] is Network[RaftSignal[T]]
+type RaftEndpoint[T: Any val] is Endpoint[RaftSignal[T]]
+
+actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
+	be apply(msg: RaftSignal[T]) => None
+	be stop() => None
+
+// -- the server
+
+actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	"""
 	Each raft server runs concurrently and coordinates with the other servers in the raft.
@@ -64,7 +81,7 @@ actor RaftServer[T: Any val] is Endpoint[T]
 	"""
 
 	let _timers: Timers
-	let _network: Network[T]
+	let _network: RaftNetwork[T]
 	let _id: U16
 	let _peers: Array[U16]
 	let _machine: StateMachine[T] iso					// implements the application logic
@@ -78,7 +95,7 @@ actor RaftServer[T: Any val] is Endpoint[T]
 
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
-	new create(id: U16, machine: StateMachine[T] iso, timers: Timers, network: Network[T], peers: Array[U16] val) =>
+	new create(id: U16, machine: StateMachine[T] iso, timers: Timers, network: RaftNetwork[T], peers: Array[U16] val) =>
 		_id = id
 		_timers = timers
 		_network = network
@@ -113,14 +130,6 @@ actor RaftServer[T: Any val] is Endpoint[T]
 
 	be stop() =>
 		_timers.cancel(_mode_timer)
-
-	be accept(command: T) =>
-		""" Accept a new command from a client. """
-		match _mode
-		| Follower	=> _accept_follower(consume command)
-		| Candidate	=> _accept_candidate(consume command)
-		| Leader		=> _accept_leader(consume command)
-		end
 
 	be apply(signal: RaftSignal[T]) =>
 		match consume signal
