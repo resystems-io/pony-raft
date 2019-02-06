@@ -1,6 +1,20 @@
+type RaftSignalStandard is (
+	  VoteRequest val
+	| VoteResponse val
+	| AppendEntriesResult val
+	| InstallSnapshotRequest val
+	| InstallSnapshotResponse val
+)
+
+type RaftSignal[T: Any val] is (
+	  RaftSignalStandard
+	| AppendEntriesRequest[T] val
+	| T
+)
+
 // -- votes
 
-class VoteRequest
+class val VoteRequest
 	"""
 	Invoked by candidates to gather votes.
 
@@ -29,7 +43,7 @@ class VoteRequest
 		last_log_term = 0
 		candidate_id = 0
 
-class VoteResponse
+class val VoteResponse
 
 	// The current_term, for the candidate to update itself
 	var term: U64
@@ -44,7 +58,7 @@ class VoteResponse
 
 // -- append
 
-class AppendEntriesRequest[T]
+class val AppendEntriesRequest[T: Any val]
 	"""
 	Invoked by the leader to replicate log entries and also used as a heartbeat.
 
@@ -84,7 +98,7 @@ class AppendEntriesRequest[T]
 		leader_id = 0
 		entries = Array[T](0)
 
-class AppendEntriesResult
+class val AppendEntriesResult
 
 	// Current term, for the leader to update itself
 	var term: U64
@@ -98,7 +112,7 @@ class AppendEntriesResult
 
 // -- snapshot
 
-class InstallSnapshotRequest
+class val InstallSnapshotRequest
 	"""
 	Invoked by the leader to send chunks of a snapshot to a follower.
 
@@ -146,7 +160,7 @@ class InstallSnapshotRequest
 		offset = 0
 		data = Array[U8](0)
 
-class InstallSnapshotResponse
+class val InstallSnapshotResponse
 
 	// Current term, for the leader to update itself
 	var term: U64

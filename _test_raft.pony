@@ -18,7 +18,7 @@ actor RaftTests is TestList
 		test(_TestPingPong)
 
 
-class iso Ping
+class val Ping
 	""" Sent by the client to fetch a new counter from the server. """
 
 	let expect: U64
@@ -28,7 +28,7 @@ class iso Ping
 		expect = _expect
 		pinger = _pinger
 
-class iso Pong
+class val Pong
 	""" Sent by the server to along with a new counter. """
 
 	let expect: U64
@@ -71,7 +71,7 @@ actor Pinger
 			_replica.accept(Ping(_expect, this))
 		end
 
-	be validate(pong: Pong iso) =>
+	be validate(pong: Pong val) =>
 		if pong.expect == pong.counter then
 			// yay, got the expected count
 			_env.out.print("Yay! " + pong.expect.string())

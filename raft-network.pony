@@ -4,9 +4,11 @@ use "time"
 
 // TODO consider being more explicit by defining Endpoint relative to Raft and RaftServer
 
-interface tag Endpoint[T: Any #send]
-	be accept(msg: T) => None
+interface tag Stoppable
 	be stop() => None
+
+interface tag Endpoint[T: Any #send] is Stoppable
+	be accept(msg: T) => None
 
 actor NopEndpoint[T: Any #send] is Endpoint[T]
 	be accept(msg: T) => None
