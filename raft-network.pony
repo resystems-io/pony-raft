@@ -48,6 +48,32 @@ actor Network[T: Any #send] is Transport[T]
 			None // dropped
 		end
 
+actor SpanningEndpoint[A: Any val, B: Any val] is Endpoint[(A|B)]
+	"""
+	An endpoint that can process two types and dispatch accordingly.
+
+	Precedence is given to the type 'A' over type 'B' in the case that both match.
+	"""
+
+	let _enda: Endpoint[A]
+	let _endb: Endpoint[B]
+
+	new create(enda: Endpoint[A], endb: Endpoint[B]) =>
+		_enda = consume enda
+		_endb = consume endb
+
+	be apply(msg: (A|B)) =>
+		// Give explicit precedent to type 'A' in the case that both A and B match
+		match msg
+		| let m: A => _enda.apply(m)
+		else
+			match msg
+			| let m: B => _endb.apply(m)
+			else
+				None // not actualy reachable
+			end
+		end
+
 actor SpanningNetwork[A: Any val, B: Any val] is Transport[(A|B)]
 	"""
 	A transport that can differentiate between two network classes.
@@ -61,6 +87,7 @@ actor SpanningNetwork[A: Any val, B: Any val] is Transport[(A|B)]
 		_transb = consume transb
 
 	be send(id: U16, msg: (A|B)) =>
+
 		// Note, this is ambiguous with respect to the case that A <: B (A is a subtype of B)
 		match msg
 		| let m: A => _transa.send(id, m)
