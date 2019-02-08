@@ -1,16 +1,44 @@
 use "collections"
 use "time"
 
+primitive RaftClientStage
+primitive RaftServerStage
+
+type RaftStage is (RaftClientStage | RaftServerStage)
+
 interface tag RaftMonitor[T: Any #send]
 
 	// TODO should replies be sent via the monitor? Or directly or via something else?
 
-	be dropped(message: T) => None
+	be dropped(message: T, stage: RaftStage) =>
+		"""
+		Signaled when the dispatched message is known to not have been delivered.
 
-	be backpressure(factor: U16) => None // zero if full rate can be handled, higher otherwise
+		Receipt of 'dropped' signals is not guaranteed.
+		"""
+		None
 
-	be reconfigure(term: U64, size: U16) => None // number of servers in the raft and leader term
-		// (signals that a new vote was carried out)
+	be backpressure(factor: U16) =>
+		"""
+		Signaled when the raft should adjust its transmission rate.
+
+		Zero if the full rate can be handled, higher if the client
+		should start backing off.
+		"""
+		None
+
+	be reconfigure(size: U16, term: U16, leader: U16) =>
+		"""
+		Signaled when the raft is informed of a change in the number or
+		location of the backing servers.
+		"""
+		None
+
+	be accept(message: T) =>
+		"""
+		Signaled when the raft has a response for the client.
+		"""
+		None
 
 actor Raft[T: Any #send]
 	"""
@@ -37,12 +65,21 @@ actor Raft[T: Any #send]
 	//   - backpressure
 	//   - dropped messages?
 
-	new create() => None
+	new create() =>
+		None
 
-	be accept(command: T, ttlMillis: U32 = 0) => None
+	be accept(command: T, ttlMillis: U32 = 0) =>
+		"""
+		Accept a client message to delegate to a replica.
+
+		A TTL is provided as the budget for queuing.
+		"""
+		None
 
 	// TODO add a register/unregister mechanism for adding replicas to the raft
 
-	be monitor(m: RaftMonitor[T]) => None
+	be monitor(m: RaftMonitor[T]) =>
+		None
 
-	be unmonitor(m: RaftMonitor[T]) => None
+	be unmonitor(m: RaftMonitor[T]) =>
+		None
