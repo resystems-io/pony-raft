@@ -63,7 +63,7 @@ actor SpanningEndpoint[A: Any val, B: Any val] is Endpoint[(A|B)]
 		_endb = consume endb
 
 	be apply(msg: (A|B)) =>
-		// Give explicit precedent to type 'A' in the case that both A and B match
+		// Give explicit precedence to type 'A' in the case that both A and B match
 		match msg
 		| let m: A => _enda.apply(m)
 		else
