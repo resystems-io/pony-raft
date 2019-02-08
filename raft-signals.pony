@@ -12,6 +12,31 @@ type RaftSignal[T: Any val] is (
 	| T
 )
 
+// -- commands
+
+class val CommandEnvelop[T: Any #send]
+	"""
+	An envelope to transport commands from the client raft a replica.
+	"""
+
+	var command: T
+	// TODO consider carrying the TTL
+
+	new val create(value: T) =>
+		this.command = consume value
+
+class val ResponseEnvelop[T: Any #send]
+	"""
+	An envelope to transport responses from the state machine back to a client raft.
+	"""
+
+	var response: T
+	// TODO consider carrying the backpressure or dropped status
+	//      When dropped, the 'response' would be the original command
+
+	new val create(value: T) =>
+		this.response = consume value
+
 // -- votes
 
 class val VoteRequest
