@@ -9,28 +9,29 @@ type RaftSignalStandard is (
 type RaftSignal[T: Any val] is (
 	  RaftSignalStandard
 	| AppendEntriesRequest[T] val
-	| T
+	| CommandEnvelope[T] val
+	| ResponseEnvelope[T] val
 )
 
 // -- commands
 
-class val CommandEnvelop[T: Any #send]
+class val CommandEnvelope[T: Any #send]
 	"""
 	An envelope to transport commands from the client raft a replica.
 	"""
 
-	var command: T
+	let command: T
 	// TODO consider carrying the TTL
 
 	new val create(value: T) =>
 		this.command = consume value
 
-class val ResponseEnvelop[T: Any #send]
+class val ResponseEnvelope[T: Any #send]
 	"""
 	An envelope to transport responses from the state machine back to a client raft.
 	"""
 
-	var response: T
+	let response: T
 	// TODO consider carrying the backpressure or dropped status
 	//      When dropped, the 'response' would be the original command
 

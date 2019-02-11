@@ -49,13 +49,13 @@ actor Pinger
 	// Ping messages will be sent in response to pong replies.
 	// Ping messages will hold the Pinger actor reference for the Ponger to reply to
 
-	let _replica: Endpoint[PingCommand]
+	let _replica: RaftEndpoint[PingCommand]
 	let _env: Env
 
 	var _run: Bool
 	var _expect: U64
 
-	new create(replica: Endpoint[PingCommand] tag, env: Env) =>
+	new create(replica: RaftEndpoint[PingCommand] tag, env: Env) =>
 		_replica = replica
 		_env = env
 		_run = true
@@ -68,7 +68,7 @@ actor Pinger
 	be go() =>
 		if _run then
 			_env.out.print("Sending ping: " + _expect.string())
-			_replica(Ping(_expect, this))
+			_replica(CommandEnvelope[PingCommand](Ping(_expect, this)))
 		end
 
 	be validate(pong: Pong val) =>

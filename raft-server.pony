@@ -133,7 +133,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	be apply(signal: RaftSignal[T]) =>
 		match consume signal
-		| let s: T => _process_command(consume s)
+		| let s: CommandEnvelope[T] => _process_command(consume s)
 		| let s: VoteRequest => _process_vote_request(consume s)
 		| let s: VoteResponse => _process_vote_response(consume s)
 		| let s: AppendEntriesRequest[T] => _process_append_entries_request(consume s)
@@ -145,12 +145,14 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	// -- internals
 
 	// -- -- client command
-	fun ref _process_command(command: T) =>
+	fun ref _process_command(command: CommandEnvelope[T]) =>
+		let c: CommandEnvelope[T] = consume command
+		let cmd: T val = c.command
 		""" Accept a new command from a client. """
 		match _mode
-		| Follower	=> _accept_follower(consume command)
-		| Candidate	=> _accept_candidate(consume command)
-		| Leader		=> _accept_leader(consume command)
+		| Follower	=> _accept_follower(consume cmd)
+		| Candidate	=> _accept_candidate(consume cmd)
+		| Leader		=> _accept_leader(consume cmd)
 		end
 
 	// -- -- votes
