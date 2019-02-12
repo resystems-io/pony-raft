@@ -20,11 +20,13 @@ class val CommandEnvelope[T: Any #send]
 	An envelope to transport commands from the client raft a replica.
 	"""
 
-	let command: T
+	let command: T	// message to be processed by the state machine
+	let source: U16 // ID of the sending client raft, to receive a response on the network
 	// TODO consider carrying the TTL
 
 	new val create(value: T) =>
 		this.command = consume value
+		this.source = 0
 
 class val ResponseEnvelope[T: Any #send]
 	"""

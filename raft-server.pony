@@ -62,6 +62,20 @@ actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
 	be apply(msg: RaftSignal[T]) => None
 	be stop() => None
 
+// -- tracing
+
+interface val RaftServerMonitor
+	fun val vote_req(id: U16, signal: VoteRequest val) => None
+	fun val vote_res(id: U16, signal: VoteResponse) => None
+	fun val append_req(id: U16) => None
+	fun val append_res(id: U16) => None
+	fun val command_req(id: U16) => None
+	fun val command_res(id: U16) => None
+	fun val install_req(id: U16) => None
+	fun val install_res(id: U16) => None
+
+class val NopRaftServerMonitor is RaftServerMonitor
+
 // -- the server
 
 actor RaftServer[T: Any val] is RaftEndpoint[T]
@@ -80,6 +94,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	state machine).
 	"""
 
+	let _monitor: RaftServerMonitor
 	let _timers: Timers
 	let _network: RaftNetwork[T]
 	let _id: U16
@@ -95,7 +110,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
-	new create(id: U16, machine: StateMachine[T] iso, timers: Timers, network: RaftNetwork[T], peers: Array[U16] val) =>
+	new create(id: U16, machine: StateMachine[T] iso
+		, timers: Timers
+		, network: RaftNetwork[T]
+		, peers: Array[U16] val
+		, monitor: RaftServerMonitor = NopRaftServerMonitor
+		) =>
+		_monitor = monitor
 		_id = id
 		_timers = timers
 		_network = network
@@ -146,6 +167,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// -- -- client command
 	fun ref _process_command(command: CommandEnvelope[T]) =>
+		_monitor.command_req(_id)
 		let c: CommandEnvelope[T] = consume command
 		let cmd: T val = c.command
 		""" Accept a new command from a client. """
@@ -158,23 +180,29 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	// -- -- votes
 
 	fun ref _process_vote_request(votereq: VoteRequest) =>
+		_monitor.vote_req(_id, votereq)
 		None
 
 	fun ref _process_vote_response(voteres: VoteResponse) =>
+		_monitor.vote_res(_id, voteres)
 		None
 
   // -- -- apending
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
+		_monitor.append_req(_id)
 		None
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
+		_monitor.append_res(_id)
 		None
 
 	// -- -- snapshots
 	fun ref _process_install_snapshot_request(snapshotreq: InstallSnapshotRequest) =>
+		_monitor.install_res(_id)
 		None
 
 	fun ref _process_install_snapshot_response(snapshotres: InstallSnapshotResponse) =>
+		_monitor.install_req(_id)
 		None
 
 	// -- -- consensus module

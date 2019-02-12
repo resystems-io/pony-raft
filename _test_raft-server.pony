@@ -17,11 +17,6 @@ actor RaftServerTests is TestList
 	fun tag tests(test: PonyTest) =>
 		test(_TestRequestVote)
 
-primitive DummyCommand
-
-class iso DummyMachine is StateMachine[DummyCommand]
-	fun ref accept(command: DummyCommand) => None
-
 class iso _TestRequestVote is UnitTest
 	"""Tests response to requesting a vote. """
 
@@ -55,7 +50,12 @@ class iso _TestRequestVote is UnitTest
 		let receiver_candidate_id: U16 = 1 // actual replica server being tested
 		let listener_candidate_id: U16 = 2 // observer validating the replies
 
-//		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, _net, [as U16: 1;2;3] )
+		// TODO set up a monitor that logs to _env.out
+
+		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, _net, [as U16: 1;2;3] )
+		let mock = MockRaftServer
+		_tidy.push(replica)
+		_tidy.push(mock)
 
 		let canvas: VoteRequest iso = recover iso VoteRequest end
 		canvas.term = 1
@@ -68,3 +68,13 @@ class iso _TestRequestVote is UnitTest
 // VoteResponse.{term: U64, vote_granted: Bool}
 
 		h.complete(true)
+
+primitive DummyCommand
+
+class iso DummyMachine is StateMachine[DummyCommand]
+	fun ref accept(command: DummyCommand) => None
+
+actor MockRaftServer is RaftEndpoint[DummyCommand]
+
+	new create() =>
+		None
