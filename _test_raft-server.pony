@@ -30,12 +30,10 @@ class iso _TestRequestVote is UnitTest
 	// check the expected 'vote'
 
 	let _timers: Timers
-	let _net: Network[RaftSignal[DummyCommand]]
 	let _tidy: Array[Stoppable]
 
 	new iso create() =>
 		_timers = Timers
-		_net = Network[RaftSignal[DummyCommand]]
 		_tidy = Array[Stoppable]
 
 	fun name(): String => "raft:server:vote"
@@ -47,23 +45,48 @@ class iso _TestRequestVote is UnitTest
 
 	fun ref apply(h: TestHelper) =>
 
-		let receiver_candidate_id: U16 = 1 // actual replica server being tested
-		let listener_candidate_id: U16 = 2 // observer validating the replies
+		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
+		let listener_candidate_id: NetworkAddress = 2 // observer validating the replies
+
+		// create a network
+		let netmon = object val is NetworkMonitor
+				let _env: Env = h.env
+				fun val dropped(id: NetworkAddress) => _env.out.print("net dropped: " + id.string())
+				fun val sent(id: NetworkAddress) => _env.out.print("net sent: " + id.string())
+			end
+		let net = Network[RaftSignal[DummyCommand]](netmon)
 
 		// TODO set up a monitor that logs to _env.out
+		let mon: RaftServerMonitor = object val is RaftServerMonitor
+				let _env: Env = h.env
+				fun val vote_req(id: NetworkAddress, signal: VoteRequest val) => _env.out.print("vote req: " + id.string())
+				fun val vote_res(id: NetworkAddress, signal: VoteResponse val) => _env.out.print("vote res: " + id.string())
+				fun val append_req(id: NetworkAddress) => _env.out.print("append req: " + id.string())
+				fun val append_res(id: NetworkAddress) => _env.out.print("append res: " + id.string())
+				fun val command_req(id: NetworkAddress) => _env.out.print("command req: " + id.string())
+				fun val command_res(id: NetworkAddress) => _env.out.print("command res: " + id.string())
+				fun val install_req(id: NetworkAddress) => _env.out.print("install req: " + id.string())
+				fun val install_res(id: NetworkAddress) => _env.out.print("install res: " + id.string())
+			end
 
-		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, _net, [as U16: 1;2;3] )
+		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as U16: 1;2;3], mon)
 		let mock = MockRaftServer
 		_tidy.push(replica)
 		_tidy.push(mock)
 
+		// register networkd endpoints
+		net.register(receiver_candidate_id, replica)
+		net.register(listener_candidate_id, mock)
+
+		// send a vote
 		let canvas: VoteRequest iso = recover iso VoteRequest end
 		canvas.term = 1
 		canvas.last_log_index = 0
 		canvas.last_log_term = 0
 		canvas.candidate_id = listener_candidate_id
 
-		_net.send(receiver_candidate_id, consume canvas)
+		h.env.out.print("sending vote...")
+		net.send(receiver_candidate_id, consume canvas)
 
 // VoteResponse.{term: U64, vote_granted: Bool}
 

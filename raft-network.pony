@@ -14,38 +14,57 @@ actor NopEndpoint[T: Any #send] is Endpoint[T]
 	be apply(msg: T) => None
 	be stop() => None
 
+type NetworkAddress is U16
+	"""
+	An address to identify processes attached to the network.
+
+	In the parlance of the Internet this would be the combination: IP:port.
+	"""
+
 interface tag Transport[T: Any #send]
 	"""
 	A network linking endpoints (servers and clients)
 
-	The endpoints are identified via a single U16 identifier.
+	The endpoints are identified via a single identifier.
 	"""
-	be send(id: U16, msg: T) => None
+	be send(id: NetworkAddress, msg: T) => None
+
+interface val NetworkMonitor
+	"""
+	A monitor for network activity.
+	"""
+	fun val dropped(id: NetworkAddress) => None
+	fun val sent(id: NetworkAddress) => None
+
+class val NopNetworkMonitor is NetworkMonitor
 
 actor Network[T: Any #send] is Transport[T]
 	"""
 	A network linking endpoints (servers and clients)
 
-	The endpoints are identified via a single U16 identifier.
+	The endpoints are identified via a single identifier.
 	"""
 
 	// TODO implement mechanisms to produce backpressure from the network
 	// TODO decide how backpressure at different layers translates and combines
 
-	let _registry: Map[U16, Endpoint[T] tag]
+	let _monitor: NetworkMonitor
+	let _registry: Map[NetworkAddress, Endpoint[T] tag]
 
-	new create() =>
-		_registry = Map[U16, Endpoint[T] tag]
+	new create(monitor: NetworkMonitor = NopNetworkMonitor) =>
+		_monitor = monitor
+		_registry = Map[NetworkAddress, Endpoint[T] tag]
 
-	be register(id: U16, server: Endpoint[T] tag) =>
+	be register(id: NetworkAddress, server: Endpoint[T] tag) =>
 		_registry(id) = server
 
-	be send(id: U16, msg: T) =>
+	be send(id: NetworkAddress, msg: T) =>
 		try
 			_registry(id)?.apply(consume msg)
+			_monitor.sent(id)
 		else
 			// TODO implement a network monitor
-			None // dropped
+			_monitor.dropped(id)
 		end
 
 actor SpanningEndpoint[A: Any val, B: Any val] is Endpoint[(A|B)]

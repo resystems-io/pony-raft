@@ -65,14 +65,14 @@ actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
 // -- tracing
 
 interface val RaftServerMonitor
-	fun val vote_req(id: U16, signal: VoteRequest val) => None
-	fun val vote_res(id: U16, signal: VoteResponse) => None
-	fun val append_req(id: U16) => None
-	fun val append_res(id: U16) => None
-	fun val command_req(id: U16) => None
-	fun val command_res(id: U16) => None
-	fun val install_req(id: U16) => None
-	fun val install_res(id: U16) => None
+	fun val vote_req(id: NetworkAddress, signal: VoteRequest val) => None
+	fun val vote_res(id: NetworkAddress, signal: VoteResponse) => None
+	fun val append_req(id: NetworkAddress) => None
+	fun val append_res(id: NetworkAddress) => None
+	fun val command_req(id: NetworkAddress) => None
+	fun val command_res(id: NetworkAddress) => None
+	fun val install_req(id: NetworkAddress) => None
+	fun val install_res(id: NetworkAddress) => None
 
 class val NopRaftServerMonitor is RaftServerMonitor
 
