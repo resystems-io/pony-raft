@@ -180,8 +180,35 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	// -- -- votes
 
 	fun ref _process_vote_request(votereq: VoteRequest) =>
+		""" See Raft §5.2 """
 		_monitor.vote_req(_id, votereq)
-		None
+		let ires: VoteResponse iso = recover iso VoteResponse end
+		ires.term = persistent.current_term
+		if votereq.term < persistent.current_term then
+			ires.vote_granted = false
+		else
+			// check if we could potentially vote for this candidate
+			let could_vote: Bool = match persistent.voted_for
+				| let s: None => true
+				| let s: NetworkAddress => s == votereq.candidate_id
+				end
+			ires.vote_granted = if could_vote then
+					// check if the candidate's log is as up-to-date as what we have here
+					if (votereq.last_log_term >= persistent.current_term)
+						and (votereq.last_log_index >= volatile.commit_index) then
+							persistent.voted_for = votereq.candidate_id
+							true
+					else
+						// candidate is not up to date
+						false
+					end
+				else
+					// already voted for someone else
+					false
+				end
+		end
+		let res: VoteResponse val = consume ires
+		_network.send(votereq.candidate_id, res)
 
 	fun ref _process_vote_response(voteres: VoteResponse) =>
 		_monitor.vote_res(_id, voteres)

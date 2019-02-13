@@ -2,7 +2,8 @@
 
 class Log[T]
 	"""
-	Log entries, holding the command along with the term when the entry was received by the leader.
+	Log entries, holding the command along with the term when the entry was
+	received by the leader.
 	"""
 
 	var term: U64
@@ -25,7 +26,7 @@ class PersistentServerState[T]
 	// (or none if no vote has been cast)
 	var voted_for: (U16 | None)
 
-	// The log entries. EAch entry contains a command for the the
+	// The log entries. Each entry contains a command for the the
 	// state machine, and the term when the entry was received by
 	// the leader. (the first index is 1).
 	embed log: Array[Log[T]]

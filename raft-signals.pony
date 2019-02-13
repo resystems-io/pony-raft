@@ -21,7 +21,7 @@ class val CommandEnvelope[T: Any #send]
 	"""
 
 	let command: T	// message to be processed by the state machine
-	let source: U16 // ID of the sending client raft, to receive a response on the network
+	let source: NetworkAddress // ID of the sending client raft, to receive a response on the network
 	// TODO consider carrying the TTL
 
 	new val create(value: T) =>
@@ -63,7 +63,7 @@ class val VoteRequest
 	var last_log_term: U64
 
 	// Candidate requesting the vote
-	var candidate_id: U16
+	var candidate_id: NetworkAddress
 
 	new create() =>
 		term = 0
@@ -113,7 +113,7 @@ class val AppendEntriesRequest[T: Any val]
 	var leader_commit: U64
 
 	// Leader ID used so that the follower can redirect cilents.
-	var leader_id: U16
+	var leader_id: NetworkAddress
 
 	// Log entries
 	embed entries: Array[T]
@@ -162,7 +162,7 @@ class val InstallSnapshotRequest
 	var term: U64
 
 	// Leader ID so that the follower can redirect clients
-	var leader_id: U16
+	var leader_id: NetworkAddress
 
 	// The last included index (the snapshot replaces all entries up through to and including this index)
 	var last_included_index: U64

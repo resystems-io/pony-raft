@@ -44,6 +44,7 @@ class iso _TestRequestVote is UnitTest
 		end
 
 	fun ref apply(h: TestHelper) =>
+		h.long_test(1_000_000_000)
 
 		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
 		let listener_candidate_id: NetworkAddress = 2 // observer validating the replies
@@ -56,7 +57,7 @@ class iso _TestRequestVote is UnitTest
 			end
 		let net = Network[RaftSignal[DummyCommand]](netmon)
 
-		// TODO set up a monitor that logs to _env.out
+		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor = object val is RaftServerMonitor
 				let _env: Env = h.env
 				fun val vote_req(id: NetworkAddress, signal: VoteRequest val) => _env.out.print("vote req: " + id.string())
@@ -69,8 +70,9 @@ class iso _TestRequestVote is UnitTest
 				fun val install_res(id: NetworkAddress) => _env.out.print("install res: " + id.string())
 			end
 
+		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as U16: 1;2;3], mon)
-		let mock = MockRaftServer
+		let mock = MockRaftServer(h)
 		_tidy.push(replica)
 		_tidy.push(mock)
 
@@ -88,10 +90,6 @@ class iso _TestRequestVote is UnitTest
 		h.env.out.print("sending vote...")
 		net.send(receiver_candidate_id, consume canvas)
 
-// VoteResponse.{term: U64, vote_granted: Bool}
-
-		h.complete(true)
-
 primitive DummyCommand
 
 class iso DummyMachine is StateMachine[DummyCommand]
@@ -99,5 +97,19 @@ class iso DummyMachine is StateMachine[DummyCommand]
 
 actor MockRaftServer is RaftEndpoint[DummyCommand]
 
-	new create() =>
-		None
+	let _h: TestHelper
+
+	new create(h: TestHelper) =>
+		_h = h
+
+	be apply(signal: RaftSignal[DummyCommand]) =>
+		_h.env.out.print("mock got a signal")
+		// VoteResponse.{term: U64, vote_granted: Bool}
+		match consume signal
+		| let s: VoteResponse =>
+			_h.env.out.print("mock got vote response")
+			_h.assert_true(s.vote_granted, "mock expected to get vote")
+		else
+			_h.fail("mock got an unexpected signal")
+		end
+		_h.complete(true)
