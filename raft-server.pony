@@ -50,8 +50,13 @@ type RaftMode is (Follower | Candidate | Leader)
 // -- trigger timeout logic
 
 primitive ElectionTimeout
+	""" Raised in a follower when it does not receive heartbeats and should start its own election. """
+primitive HeartbeatTimeout
+	""" Raised in a leader when it should publish heartbeats to its followers. """
+primitive CanvasTimeout
+	""" Raised in a candidate when it fails to canvas enough votes. """
 
-type RaftTimeout is (ElectionTimeout)
+type RaftTimeout is (ElectionTimeout | HeartbeatTimeout | CanvasTimeout)
 
 // -- the transport
 
@@ -65,6 +70,8 @@ actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
 // -- tracing
 
 interface val RaftServerMonitor
+
+	// -- follow incoming chatter
 	fun val vote_req(id: NetworkAddress, signal: VoteRequest val) => None
 	fun val vote_res(id: NetworkAddress, signal: VoteResponse) => None
 	fun val append_req(id: NetworkAddress) => None
@@ -73,6 +80,10 @@ interface val RaftServerMonitor
 	fun val command_res(id: NetworkAddress) => None
 	fun val install_req(id: NetworkAddress) => None
 	fun val install_res(id: NetworkAddress) => None
+
+	// -- follow internal state changes and timeouts
+	fun val timeout_raised(timeout: RaftTimeout) => None
+	fun val state_changed(mode: RaftMode, term: U64) => None
 
 class val NopRaftServerMonitor is RaftServerMonitor
 
@@ -97,23 +108,24 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _monitor: RaftServerMonitor
 	let _timers: Timers
 	let _network: RaftNetwork[T]
-	let _id: U16
-	let _peers: Array[U16]
+	let _id: NetworkAddress
+	let _peers: Array[NetworkAddress]
 	let _machine: StateMachine[T] iso					// implements the application logic
+
 	let persistent: PersistentServerState[T]	// holds the log
 	let volatile: VolatileServerState
 	var leader: (VolatileLeaderState | None)
 
 	var _mode: RaftMode
-	var _lastKnownLeader: U16
 	var _mode_timer: Timer tag
+	var _lastKnownLeader: NetworkAddress
 
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
-	new create(id: U16, machine: StateMachine[T] iso
+	new create(id: NetworkAddress, machine: StateMachine[T] iso
 		, timers: Timers
 		, network: RaftNetwork[T]
-		, peers: Array[U16] val
+		, peers: Array[NetworkAddress] val
 		, monitor: RaftServerMonitor = NopRaftServerMonitor
 		) =>
 		_monitor = monitor
@@ -122,7 +134,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_network = network
 
 		// copy peers but remove self
-		_peers = Array[U16](peers.size() - 1)
+		_peers = Array[NetworkAddress](peers.size() - 1)
 		try
 			var i: USize = 0
 			var j: USize = 0
@@ -135,6 +147,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			end
 		end
 
+		// set up basic internal state and the state machine
 		_machine = consume machine
 		persistent = PersistentServerState[T]
 		volatile = VolatileServerState
@@ -145,6 +158,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		let mt: Timer iso = Timer(object iso is TimerNotify end, 200_000_000, 200_000_000) // 200ms
 		_mode_timer = mt
 		_mode = Follower
+		persistent.current_term = 0
 
 		// start in follower mode
 		_start_follower()
@@ -162,6 +176,9 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		| let s: InstallSnapshotRequest => _process_install_snapshot_request(consume s)
 		| let s: InstallSnapshotResponse => _process_install_snapshot_response(consume s)
 		end
+
+	be raise(timeout: RaftTimeout) =>
+		_monitor.timeout_raised(timeout)
 
 	// -- internals
 
@@ -234,8 +251,12 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// -- -- consensus module
 
+	fun ref _set_mode(mode: RaftMode) =>
+		_mode = mode
+		_monitor.state_changed(_mode, persistent.current_term)
+
 	fun ref _start_follower() =>
-		_mode = Follower
+		_set_mode(Follower)
 		// cancel any previous timers
 		_timers.cancel(_mode_timer)
 
@@ -247,7 +268,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		None
 
 	fun ref _start_candidate() =>
-		_mode = Candidate
+		_set_mode(Candidate)
 		// cancel any previous timers
 		_timers.cancel(_mode_timer)
 
@@ -258,7 +279,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_timers(consume mt)
 
 	fun ref _start_leader() =>
-		_mode = Leader
+		_set_mode(Leader)
 		// cancel any previous timers
 		_timers.cancel(_mode_timer)
 
