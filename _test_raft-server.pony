@@ -16,9 +16,54 @@ actor RaftServerTests is TestList
 
 	fun tag tests(test: PonyTest) =>
 		test(_TestRequestVote)
+		test(_TestWaitForElection)
+		test(_TestWaitForCanvas)
+		test(_TestWaitForHeartbeat)
+
+class iso _TestWaitForHeartbeat is UnitTest
+	""" Tests that a leader gets signal to publish heartbeats. """
+	new iso create() => None
+	fun name(): String => "raft:server:heartbeat"
+	fun ref apply(h: TestHelper) =>
+		h.fail("not yet implemented")
+
+class iso _TestWaitForCanvas is UnitTest
+	""" Tests that a candidate will restart a new election if an election doesn't conclude in time. """
+	new iso create() => None
+	fun name(): String => "raft:server:canvas"
+	fun ref apply(h: TestHelper) =>
+		h.fail("not yet implemented")
+
+class iso _TestWaitForElection is UnitTest
+	""" Tests that a follower will start an election if it does not receive a heartbeat. """
+
+	// simply start a follower
+	// wait for the timeout via the monitor
+	// wait for the state change via the monitor
+	// conclude
+
+	new iso create() => None
+	fun name(): String => "raft:server:election"
+	fun ref apply(h: TestHelper) =>
+		h.fail("not yet implemented")
+
+class _Tidy
+
+	let _tidy: Array[Stoppable]
+
+	new create() =>
+		_tidy = Array[Stoppable]
+
+	fun clear() =>
+		for s in _tidy.values() do
+			s.stop()
+		end
+
+	fun ref tidy(component: Stoppable) =>
+		_tidy.push(component)
 
 class iso _TestRequestVote is UnitTest
-	"""Tests response to requesting a vote. """
+	""" Tests response to requesting a vote. """
 
 	// create just one replica
 	// create a network
@@ -30,18 +75,16 @@ class iso _TestRequestVote is UnitTest
 	// check the expected 'vote'
 
 	let _timers: Timers
-	let _tidy: Array[Stoppable]
+	let _tidy: _Tidy
 
 	new iso create() =>
 		_timers = Timers
-		_tidy = Array[Stoppable]
+		_tidy = _Tidy
 
 	fun name(): String => "raft:server:vote"
 
-	fun tear_down(h: TestHelper) =>
-		for s in _tidy.values() do
-			s.stop()
-		end
+	fun ref tear_down(h: TestHelper) =>
+		_tidy.clear()
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -73,8 +116,8 @@ class iso _TestRequestVote is UnitTest
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as U16: 1;2;3], mon)
 		let mock = MockRaftServer(h)
-		_tidy.push(replica)
-		_tidy.push(mock)
+		_tidy.tidy(replica)
+		_tidy.tidy(mock)
 
 		// register networkd endpoints
 		net.register(receiver_candidate_id, replica)
