@@ -61,14 +61,20 @@ class iso _TestWaitForElection is UnitTest
 
 		// create a network
 		let net = Network[RaftSignal[DummyCommand]]()
+		h.expect_action("got-timeout")
+//		h.expect_action("got-state") // FIXME
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor = object val is RaftServerMonitor
-				let _b: _TestWaitForElectionBarrier = _TestWaitForElectionBarrier(h)
+				let _h: TestHelper = h
 				fun val timeout_raised(timeout: RaftTimeout) =>
-					if (timeout is ElectionTimeout) then _b.got_timeout() end
+					if (timeout is ElectionTimeout) then
+						_h.complete_action("got-timeout")
+					end
 				fun val state_changed(mode: RaftMode, term: U64) =>
-					if (mode is Candidate) then _b.got_state() end
+					if (mode is Candidate) then
+						_h.complete_action("got-state")
+					end
 			end
 
 		// register components that need to be shut down
@@ -77,26 +83,6 @@ class iso _TestWaitForElection is UnitTest
 
 		// register networkd endpoints
 		net.register(receiver_candidate_id, replica)
-
-actor _TestWaitForElectionBarrier
-	""" A barrier waiting for both state and timeout triggers. """
-	let _h: TestHelper
-	var _got_timeout: Bool
-	var _got_state: Bool
-	new create(h: TestHelper) =>
-		_h = h
-		_got_timeout = false
-		_got_state = true // FIXME
-	be got_timeout() =>
-		_h.env.out.print("timeout raised")
-		_got_timeout = true
-		review()
-	be got_state() =>
-		_h.env.out.print("state changed")
-		_got_state = true
-		review()
-	fun box review() =>
-		if (_got_state and _got_timeout) then _h.complete(true) end
 
 class iso _TestRequestVote is UnitTest
 	""" Tests response to requesting a vote. """
