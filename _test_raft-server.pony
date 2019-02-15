@@ -57,7 +57,7 @@ class iso _TestWaitForElection is UnitTest
 		// create a network
 		let net = Network[RaftSignal[DummyCommand]]()
 		h.expect_action("got-timeout")
-//		h.expect_action("got-state") // FIXME
+		h.expect_action("got-state")
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor = object val is RaftServerMonitor

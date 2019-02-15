@@ -125,6 +125,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let volatile: VolatileServerState
 	var leader: (VolatileLeaderState | None)
 
+	var _votes: U16
+
 	var _mode: RaftMode
 	var _mode_timer: Timer tag
 	var _lastKnownLeader: NetworkAddress
@@ -166,6 +168,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		persistent = PersistentServerState[T]
 		volatile = VolatileServerState
 		leader = None
+		_votes = 0
 		_lastKnownLeader = 0
 		_mode = Follower
 		_mode_timer = Timer(object iso is TimerNotify end, 1, 1)
@@ -194,7 +197,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// TODO consider just ignoring timeout signals that don't match the current mode
 		_monitor.timeout_raised(timeout)
 		match timeout
-		| (let t: ElectionTimeout) => None
+		| (let t: ElectionTimeout) => _start_candidate()
 		| (let t: CanvasTimeout) => None
 		| (let t: HeartbeatTimeout) => None
 		end
@@ -202,6 +205,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	// -- internals
 
 	// -- -- client command
+
 	fun ref _process_command(command: CommandEnvelope[T]) =>
 		_monitor.command_req(_id)
 		let c: CommandEnvelope[T] = consume command
@@ -274,10 +278,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// -- -- consensus module
 
-	fun ref _set_mode(mode: RaftMode) =>
-		_mode = mode
-		_monitor.state_changed(_mode, persistent.current_term)
-
 	fun ref _start_follower() =>
 		"""
 		Follower state:
@@ -292,24 +292,33 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		// create a timer to become a candidate if no append-entries heart beat is received
 		let mt: Timer iso = Timer(_Timeout(this, ElectionTimeout), swash, _repeat_election_timeout)
-		_timers.cancel(_mode_timer) // cancel any previous timers
-		_mode_timer = mt
-		_timers(consume mt)
-
-	fun ref _swash(lower: U64, upper: U64): U64 =>
-		// randomise the timeout between [150,300) ms
-		lower + _rand.int(upper - lower)
+		_set_timer(consume mt)
 
 	fun ref _start_candidate() =>
+		// check that we are not already a candidate
+		if (_mode is Candidate) then return end
+
 		_set_mode(Candidate)
-		// cancel any previous timers
-		_timers.cancel(_mode_timer)
+
+		// start a new election
+		_start_election()
+
+	fun ref _start_election() =>
+		// only candidates can run elections
+		if (_mode isnt Candidate) then return end
+
+		// new term and vote for self
+		persistent.current_term = persistent.current_term + 1
+		persistent.voted_for = _id
+		_votes = 1
+		// TODO send vote requests to other replicas
+
+		// randomise the timeout between [150,300) ms
+		let swash = _swash(_lower_election_timeout, _upper_election_timeout)
 
 		// create a timer for an election timeout to start a new election
-		// TODO need to randomise the timeout
-		let mt: Timer iso = Timer(object iso is TimerNotify end, 200_000_000, 200_000_000) // 200ms
-		_mode_timer = mt
-		_timers(consume mt)
+		let mt: Timer iso = Timer(_Timeout(this, CanvasTimeout), swash, _repeat_election_timeout)
+		_set_timer(consume mt)
 
 	fun ref _start_leader() =>
 		_set_mode(Leader)
@@ -317,10 +326,21 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_timers.cancel(_mode_timer)
 
 		// set up timer to send out for append-entries heart beat
-		// TODO
 		let mt: Timer iso = Timer(object iso is TimerNotify end, 500_000_000, 500_000_000) // 500ms
+		_set_timer(consume mt)
+
+	fun ref _set_timer(mt: Timer iso) =>
+		_timers.cancel(_mode_timer) // cancel any previous timers before recording a new one
 		_mode_timer = mt
 		_timers(consume mt)
+
+	fun ref _set_mode(mode: RaftMode) =>
+		_mode = mode
+		_monitor.state_changed(_mode, persistent.current_term)
+
+	fun ref _swash(lower: U64, upper: U64): U64 =>
+		// randomise the timeout between [150,300) ms
+		lower + _rand.int(upper - lower)
 
 	// -- command ingress
 
