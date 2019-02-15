@@ -42,10 +42,61 @@ class iso _TestWaitForElection is UnitTest
 	// wait for the state change via the monitor
 	// conclude
 
-	new iso create() => None
+	let _timers: Timers
+	let _tidy: _Tidy
+
+	new iso create() =>
+		_timers = Timers
+		_tidy = _Tidy
+
 	fun name(): String => "raft:server:election"
+
+	fun ref tear_down(h: TestHelper) =>
+		_tidy.clear()
+
 	fun ref apply(h: TestHelper) =>
-		h.fail("not yet implemented")
+		h.long_test(1_000_000_000)
+
+		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
+
+		// create a network
+		let net = Network[RaftSignal[DummyCommand]]()
+
+		// set up a monitor that logs to _env.out
+		let mon: RaftServerMonitor = object val is RaftServerMonitor
+				let _b: _TestWaitForElectionBarrier = _TestWaitForElectionBarrier(h)
+				fun val timeout_raised(timeout: RaftTimeout) =>
+					if (timeout is ElectionTimeout) then _b.got_timeout() end
+				fun val state_changed(mode: RaftMode, term: U64) =>
+					if (mode is Candidate) then _b.got_state() end
+			end
+
+		// register components that need to be shut down
+		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress: 1], mon)
+		_tidy.tidy(replica)
+
+		// register networkd endpoints
+		net.register(receiver_candidate_id, replica)
+
+actor _TestWaitForElectionBarrier
+	""" A barrier waiting for both state and timeout triggers. """
+	let _h: TestHelper
+	var _got_timeout: Bool
+	var _got_state: Bool
+	new create(h: TestHelper) =>
+		_h = h
+		_got_timeout = false
+		_got_state = true // FIXME
+	be got_timeout() =>
+		_h.env.out.print("timeout raised")
+		_got_timeout = true
+		review()
+	be got_state() =>
+		_h.env.out.print("state changed")
+		_got_state = true
+		review()
+	fun box review() =>
+		if (_got_state and _got_timeout) then _h.complete(true) end
 
 class iso _TestRequestVote is UnitTest
 	""" Tests response to requesting a vote. """
@@ -99,7 +150,7 @@ class iso _TestRequestVote is UnitTest
 			end
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as U16: 1;2;3], mon)
+		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress: 1;2;3], mon)
 		let mock = MockRaftServer(h)
 		_tidy.tidy(replica)
 		_tidy.tidy(mock)
