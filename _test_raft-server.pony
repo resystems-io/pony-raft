@@ -43,16 +43,11 @@ class iso _TestWaitForElection is UnitTest
 	// conclude
 
 	let _timers: Timers
-	let _tidy: _Tidy
 
 	new iso create() =>
 		_timers = Timers
-		_tidy = _Tidy
 
 	fun name(): String => "raft:server:election"
-
-	fun ref tear_down(h: TestHelper) =>
-		_tidy.clear()
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -79,7 +74,7 @@ class iso _TestWaitForElection is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress: 1], mon)
-		_tidy.tidy(replica)
+		h.dispose_when_done(replica)
 
 		// register networkd endpoints
 		net.register(receiver_candidate_id, replica)
@@ -97,16 +92,13 @@ class iso _TestRequestVote is UnitTest
 	// check the expected 'vote'
 
 	let _timers: Timers
-	let _tidy: _Tidy
 
 	new iso create() =>
 		_timers = Timers
-		_tidy = _Tidy
 
 	fun name(): String => "raft:server:vote"
 
-	fun ref tear_down(h: TestHelper) =>
-		_tidy.clear()
+	fun ref tear_down(h: TestHelper) => None
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -138,8 +130,8 @@ class iso _TestRequestVote is UnitTest
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress: 1;2;3], mon)
 		let mock = MockRaftServer(h)
-		_tidy.tidy(replica)
-		_tidy.tidy(mock)
+		h.dispose_when_done(replica)
+		h.dispose_when_done(mock)
 
 		// register networkd endpoints
 		net.register(receiver_candidate_id, replica)
@@ -178,19 +170,3 @@ actor MockRaftServer is RaftEndpoint[DummyCommand]
 			_h.fail("mock got an unexpected signal")
 		end
 		_h.complete(true)
-
-class _Tidy
-	""" Helper to clean up stoabble components. """
-
-	let _tidy: Array[Stoppable]
-
-	new create() =>
-		_tidy = Array[Stoppable]
-
-	fun clear() =>
-		for s in _tidy.values() do
-			s.stop()
-		end
-
-	fun ref tidy(component: Stoppable) =>
-		_tidy.push(component)
