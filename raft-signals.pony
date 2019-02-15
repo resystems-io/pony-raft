@@ -6,11 +6,19 @@ type RaftSignalStandard is (
 	| InstallSnapshotResponse val
 )
 
-type RaftSignal[T: Any val] is (
+type RaftServerSignal[T: Any val] is (
 	  RaftSignalStandard
 	| AppendEntriesRequest[T] val
 	| CommandEnvelope[T] val
-	| ResponseEnvelope[T] val
+)
+
+type RaftClientSignal[T: Any val] is (
+	ResponseEnvelope[T] val
+)
+
+type RaftSignal[T: Any val] is (
+	  RaftServerSignal[T]
+	| RaftClientSignal[T] val
 )
 
 // -- commands
@@ -34,7 +42,7 @@ class val ResponseEnvelope[T: Any #send]
 	"""
 
 	let response: T
-	// TODO consider carrying the backpressure or dropped status
+	// TODO consider carrying the backpressure or dropped status (if known)
 	//      When dropped, the 'response' would be the original command
 
 	new val create(value: T) =>

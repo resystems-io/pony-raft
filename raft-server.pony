@@ -177,15 +177,17 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	be stop() =>
 		_timers.cancel(_mode_timer)
 
-	be apply(signal: RaftSignal[T]) =>
+	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
 		match consume signal
-		| let s: CommandEnvelope[T] => _process_command(consume s)
+		| let s: CommandEnvelope[T] => _process_command(consume s) // note, no matching ResponseEnvelope
 		| let s: VoteRequest => _process_vote_request(consume s)
 		| let s: VoteResponse => _process_vote_response(consume s)
 		| let s: AppendEntriesRequest[T] => _process_append_entries_request(consume s)
 		| let s: AppendEntriesResult => _process_append_entries_result(consume s)
 		| let s: InstallSnapshotRequest => _process_install_snapshot_request(consume s)
 		| let s: InstallSnapshotResponse => _process_install_snapshot_response(consume s)
+		else
+			None
 		end
 
 	be raise(timeout: RaftTimeout) =>

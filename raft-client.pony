@@ -76,6 +76,9 @@ actor Raft[T: Any #send]
 		"""
 		None
 
+	be apply(response: ResponseEnvelope[T]) =>
+		None
+
 	// TODO add a register/unregister mechanism for adding replicas to the raft
 
 	be monitor(m: RaftMonitor[T]) =>
