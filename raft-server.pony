@@ -1,4 +1,5 @@
 use "collections"
+use "random"
 use "time"
 
 // # Raft state transitions
@@ -87,6 +88,9 @@ interface val RaftServerMonitor
 
 class val NopRaftServerMonitor is RaftServerMonitor
 
+interface tag RaftRaisable
+	be raise(timeout: RaftTimeout) => None
+
 // -- the server
 
 actor RaftServer[T: Any val] is RaftEndpoint[T]
@@ -105,6 +109,11 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	state machine).
 	"""
 
+	let _lower_election_timeout: U64 = 150_000_000 // 150 ms
+	let _upper_election_timeout: U64 = 300_000_000 // 300 ms
+	let _repeat_election_timeout: U64 = 200_000_000 // 300 ms
+
+	let _rand: Random
 	let _monitor: RaftServerMonitor
 	let _timers: Timers
 	let _network: RaftNetwork[T]
@@ -128,6 +137,11 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		, peers: Array[NetworkAddress] val
 		, monitor: RaftServerMonitor = NopRaftServerMonitor
 		) =>
+
+		// seed the random number generator
+		(let sec: I64, let nsec: I64) = Time.now()
+		_rand = Rand(sec.u64(), nsec.u64())
+
 		_monitor = monitor
 		_id = id
 		_timers = timers
@@ -153,11 +167,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		volatile = VolatileServerState
 		leader = None
 		_lastKnownLeader = 0
-
-		// raft servers start as followers
-		let mt: Timer iso = Timer(object iso is TimerNotify end, 200_000_000, 200_000_000) // 200ms
-		_mode_timer = mt
 		_mode = Follower
+		_mode_timer = Timer(object iso is TimerNotify end, 1, 1)
 		persistent.current_term = 0
 
 		// start in follower mode
@@ -178,7 +189,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		end
 
 	be raise(timeout: RaftTimeout) =>
+		// TODO consider just ignoring timeout signals that don't match the current mode
 		_monitor.timeout_raised(timeout)
+		match timeout
+		| (let t: ElectionTimeout) => None
+		| (let t: CanvasTimeout) => None
+		| (let t: HeartbeatTimeout) => None
+		end
 
 	// -- internals
 
@@ -234,6 +251,10 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
   // -- -- apending
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
 		_monitor.append_req(_id)
+		// decide if this request should be honoured (we might be ahead in a new term)
+		// if accepted, the perform mode changes (we might be behind and should bow to a new leader)
+		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
+		// if accepted, then actually append and process the log agains the state machine
 		None
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
@@ -256,16 +277,26 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_monitor.state_changed(_mode, persistent.current_term)
 
 	fun ref _start_follower() =>
+		"""
+		Follower state:
+
+		The follower will honour heartbeats and log updates, but will also set a timer to potentially
+		start its own election.
+		"""
 		_set_mode(Follower)
-		// cancel any previous timers
-		_timers.cancel(_mode_timer)
+
+		// randomise the timeout between [150,300) ms
+		let swash = _swash(_lower_election_timeout, _upper_election_timeout)
 
 		// create a timer to become a candidate if no append-entries heart beat is received
-		// TODO need to randomise the timeout
-		let mt: Timer iso = Timer(object iso is TimerNotify end, 200_000_000, 200_000_000) // 200ms
+		let mt: Timer iso = Timer(_Timeout(this, ElectionTimeout), swash, _repeat_election_timeout)
+		_timers.cancel(_mode_timer) // cancel any previous timers
 		_mode_timer = mt
 		_timers(consume mt)
-		None
+
+	fun ref _swash(lower: U64, upper: U64): U64 =>
+		// randomise the timeout between [150,300) ms
+		lower + _rand.int(upper - lower)
 
 	fun ref _start_candidate() =>
 		_set_mode(Candidate)
@@ -309,3 +340,16 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		//              starts to get too large)
 		None
 
+class _Timeout is TimerNotify
+	""" A common timeout handler that will raise a signal back with the replica. """
+
+	let _raisable: RaftRaisable
+	let _signal: RaftTimeout
+
+	new iso create(raisable: RaftRaisable, signal: RaftTimeout) =>
+		_raisable = raisable
+		_signal = signal
+
+	fun ref apply(timer: Timer, count: U64): Bool =>
+		_raisable.raise(_signal)
+		true

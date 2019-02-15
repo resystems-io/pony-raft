@@ -37,7 +37,7 @@ class iso _TestWaitForCanvas is UnitTest
 class iso _TestWaitForElection is UnitTest
 	""" Tests that a follower will start an election if it does not receive a heartbeat. """
 
-	// simply start a follower
+	// simply start a replica which will default to 'follower' mode
 	// wait for the timeout via the monitor
 	// wait for the state change via the monitor
 	// conclude
@@ -46,21 +46,6 @@ class iso _TestWaitForElection is UnitTest
 	fun name(): String => "raft:server:election"
 	fun ref apply(h: TestHelper) =>
 		h.fail("not yet implemented")
-
-class _Tidy
-
-	let _tidy: Array[Stoppable]
-
-	new create() =>
-		_tidy = Array[Stoppable]
-
-	fun clear() =>
-		for s in _tidy.values() do
-			s.stop()
-		end
-
-	fun ref tidy(component: Stoppable) =>
-		_tidy.push(component)
 
 class iso _TestRequestVote is UnitTest
 	""" Tests response to requesting a vote. """
@@ -156,3 +141,19 @@ actor MockRaftServer is RaftEndpoint[DummyCommand]
 			_h.fail("mock got an unexpected signal")
 		end
 		_h.complete(true)
+
+class _Tidy
+	""" Helper to clean up stoabble components. """
+
+	let _tidy: Array[Stoppable]
+
+	new create() =>
+		_tidy = Array[Stoppable]
+
+	fun clear() =>
+		for s in _tidy.values() do
+			s.stop()
+		end
+
+	fun ref tidy(component: Stoppable) =>
+		_tidy.push(component)
