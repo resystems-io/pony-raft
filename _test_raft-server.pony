@@ -53,11 +53,13 @@ class iso _TestWaitForElection is UnitTest
 		h.long_test(1_000_000_000)
 
 		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
+		let listener_candidate_id: NetworkAddress = 2 // observer validating the replies
 
 		// create a network
 		let net = Network[RaftSignal[DummyCommand]]()
 		h.expect_action("got-timeout")
 		h.expect_action("got-state")
+		h.expect_action("got-canvas") // expecting RequestVote in the mock
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor = object val is RaftServerMonitor
@@ -73,11 +75,31 @@ class iso _TestWaitForElection is UnitTest
 			end
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress: 1], mon)
+		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], mon)
+		let mock = ExpectCanvasMockRaftServer(h)
 		h.dispose_when_done(replica)
+		h.dispose_when_done(mock)
 
 		// register networkd endpoints
 		net.register(receiver_candidate_id, replica)
+		net.register(listener_candidate_id, mock)
+
+actor ExpectCanvasMockRaftServer is RaftEndpoint[DummyCommand]
+
+	let _h: TestHelper
+
+	new create(h: TestHelper) =>
+		_h = h
+
+	be apply(signal: RaftSignal[DummyCommand]) =>
+		match consume signal
+		| let s: VoteRequest =>
+			_h.complete_action("got-canvas")
+		else
+			_h.fail("mock got an unexpected signal")
+		end
+		_h.complete(true)
 
 class iso _TestRequestVote is UnitTest
 	""" Tests response to requesting a vote. """
@@ -128,8 +150,9 @@ class iso _TestRequestVote is UnitTest
 			end
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress: 1;2;3], mon)
-		let mock = MockRaftServer(h)
+		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress:
+				receiver_candidate_id; listener_candidate_id;3], mon)
+		let mock = ExpectVoteMockRaftServer(h)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)
 
@@ -152,7 +175,7 @@ primitive DummyCommand
 class iso DummyMachine is StateMachine[DummyCommand]
 	fun ref accept(command: DummyCommand) => None
 
-actor MockRaftServer is RaftEndpoint[DummyCommand]
+actor ExpectVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
 
@@ -165,7 +188,7 @@ actor MockRaftServer is RaftEndpoint[DummyCommand]
 		match consume signal
 		| let s: VoteResponse =>
 			_h.env.out.print("mock got vote response")
-			_h.assert_true(s.vote_granted, "mock expected to get vote")
+			_h.assert_true(s.vote_granted, "mock expected to get a vote")
 		else
 			_h.fail("mock got an unexpected signal")
 		end
