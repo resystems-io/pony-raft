@@ -15,10 +15,25 @@ actor RaftServerTests is TestList
 		None
 
 	fun tag tests(test: PonyTest) =>
+		test(_TestArrayWithout)
 		test(_TestRequestVote)
 		test(_TestWaitForElection)
 		test(_TestWaitForCanvas)
 		test(_TestWaitForHeartbeat)
+
+class iso _TestArrayWithout is UnitTest
+	""" Tests removal of an element from an array. """
+	new iso create() => None
+	fun name(): String => "raft:server:without"
+	fun ref apply(h: TestHelper) ? =>
+		let all: Array[NetworkAddress] val = recover val [as NetworkAddress: 1;2;3;4;5] end
+		let without: Array[NetworkAddress] = ArrayWithout[NetworkAddress].without(4, all)?
+		h.assert_eq[USize](4, without.size())
+		h.assert_true(without.contains(1))
+		h.assert_true(without.contains(2))
+		h.assert_true(without.contains(3))
+		h.assert_true(without.contains(5))
+		h.assert_false(without.contains(4))
 
 class iso _TestWaitForHeartbeat is UnitTest
 	""" Tests that a leader gets signal to publish heartbeats. """
@@ -56,6 +71,7 @@ class iso _TestWaitForElection is UnitTest
 		let listener_candidate_id: NetworkAddress = 2 // observer validating the replies
 
 		// create a network
+		let netmon = EnvNetworkMonitor(h.env)
 		let net = Network[RaftSignal[DummyCommand]]()
 		h.expect_action("got-timeout")
 		h.expect_action("got-state")
@@ -70,6 +86,7 @@ class iso _TestWaitForElection is UnitTest
 					end
 				fun val state_changed(mode: RaftMode, term: U64) =>
 					if (mode is Candidate) then
+						_h.env.out.print("got state Candidate for term " + term.string())
 						_h.complete_action("got-state")
 					end
 			end
@@ -129,11 +146,7 @@ class iso _TestRequestVote is UnitTest
 		let listener_candidate_id: NetworkAddress = 2 // observer validating the replies
 
 		// create a network
-		let netmon = object val is NetworkMonitor
-				let _env: Env = h.env
-				fun val dropped(id: NetworkAddress) => _env.out.print("net dropped: " + id.string())
-				fun val sent(id: NetworkAddress) => _env.out.print("net sent: " + id.string())
-			end
+		let netmon = EnvNetworkMonitor(h.env)
 		let net = Network[RaftSignal[DummyCommand]](netmon)
 
 		// set up a monitor that logs to _env.out
@@ -174,6 +187,16 @@ primitive DummyCommand
 
 class iso DummyMachine is StateMachine[DummyCommand]
 	fun ref accept(command: DummyCommand) => None
+
+class val EnvNetworkMonitor is NetworkMonitor
+
+	let _env: Env
+
+	new val create(env: Env) =>
+		_env = env
+
+	fun val dropped(id: NetworkAddress) => _env.out.print("net dropped: " + id.string())
+	fun val sent(id: NetworkAddress) => _env.out.print("net sent: " + id.string())
 
 actor ExpectVoteMockRaftServer is RaftEndpoint[DummyCommand]
 

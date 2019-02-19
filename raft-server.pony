@@ -150,18 +150,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_network = network
 
 		// copy peers but remove self
-		_peers = Array[NetworkAddress](peers.size() - 1)
-		try
-			var i: USize = 0
-			var j: USize = 0
-			while (i < peers.size()) do
-				if peers(j)? != id then
-					_peers(i)? = peers(j)?
-					i = i+1
-				end
-				j = j+1
-			end
-		end
+		_peers = try ArrayWithout[NetworkAddress].without(id, peers)? else [as NetworkAddress: id] end
 
 		// set up basic internal state and the state machine
 		_machine = consume machine
@@ -311,7 +300,18 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		persistent.current_term = persistent.current_term + 1
 		persistent.voted_for = _id
 		_votes = 1
-		// TODO send vote requests to other replicas
+		// send vote requests to other replicas
+		for p in _peers.values() do
+			let canvas: VoteRequest iso = recover iso VoteRequest end
+			canvas.term = persistent.current_term
+			canvas.candidate_id = _id
+
+			// TODO review are the log_term and log_index being set correctly?
+			canvas.last_log_term = try persistent.log(volatile.commit_index.usize())?.term else U64(0) end
+			canvas.last_log_index = volatile.commit_index
+
+			_network.send(p, consume canvas)
+		end
 
 		// randomise the timeout between [150,300) ms
 		let swash = _swash(_lower_election_timeout, _upper_election_timeout)
@@ -375,3 +375,17 @@ class _Timeout is TimerNotify
 	fun ref apply(timer: Timer, count: U64): Bool =>
 		_raisable.raise(_signal)
 		true
+
+primitive ArrayWithout[T: NetworkAddress] // Equatable[T] #read]
+
+	fun val without(t: T, v: Array[T] val): Array[T] ? =>
+		let w: Array[T] iso = recover iso Array[T](v.size() - 1) end
+		var i: USize = 0
+		while (i < v.size()) do
+			let v': T = v(i)?
+			if v' != t then
+				w.push(v')
+			end
+			i = i+1
+		end
+		consume w
