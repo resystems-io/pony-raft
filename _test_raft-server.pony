@@ -114,6 +114,8 @@ class iso _TestWaitForCanvas is UnitTest
 		net.register(receiver_candidate_id, replica)
 		net.register(listener_candidate_id, mock)
 
+		h.fail("need to actually check that a new election was started")
+
 
 class iso _TestWaitForElection is UnitTest
 	""" Tests that a follower will start an election if it does not receive a heartbeat. """
