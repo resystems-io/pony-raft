@@ -19,6 +19,8 @@ actor RaftServerTests is TestList
 		test(_TestRequestVote)
 		test(_TestWaitForElection)
 		test(_TestWaitForCanvas)
+		test(_TestConvertToLeader)
+		test(_TestConvertToFollower)
 		test(_TestWaitForHeartbeat)
 
 class iso _TestArrayWithout is UnitTest
@@ -39,6 +41,20 @@ class iso _TestWaitForHeartbeat is UnitTest
 	""" Tests that a leader gets signal to publish heartbeats. """
 	new iso create() => None
 	fun name(): String => "raft:server:heartbeat"
+	fun ref apply(h: TestHelper) =>
+		h.fail("not yet implemented")
+
+class iso _TestConvertToLeader is UnitTest
+	""" Tests that a candidate will convert to a leader if it gets enough votes. """
+	new iso create() => None
+	fun name(): String => "raft:server:convert-to-leader"
+	fun ref apply(h: TestHelper) =>
+		h.fail("not yet implemented")
+
+class iso _TestConvertToFollower is UnitTest
+	""" Tests that a candidate will convert to a follower a peer is elected. """
+	new iso create() => None
+	fun name(): String => "raft:server:convert-to-follower"
 	fun ref apply(h: TestHelper) =>
 		h.fail("not yet implemented")
 
