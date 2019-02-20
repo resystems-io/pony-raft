@@ -60,10 +60,60 @@ class iso _TestConvertToFollower is UnitTest
 
 class iso _TestWaitForCanvas is UnitTest
 	""" Tests that a candidate will restart a new election if an election doesn't conclude in time. """
-	new iso create() => None
+
+	// simply start a replica which will default to 'follower' mode
+	// wait for the follower to become a candidate based on the election timeout
+	// wait for the candidate to receive a second "canvas" timeout
+
+	let _timers: Timers
+
+	new iso create() =>
+		_timers = Timers
+
 	fun name(): String => "raft:server:canvas"
+
 	fun ref apply(h: TestHelper) =>
-		h.fail("not yet implemented")
+		h.long_test(1_000_000_000)
+
+		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
+		let listener_candidate_id: NetworkAddress = 2 // observer validating the replies
+
+		// create a network
+		let netmon = EnvNetworkMonitor(h.env)
+		let net = Network[RaftSignal[DummyCommand]]()
+		// NB don't call h.complete(...) if using "expect actions"
+		h.expect_action("got-election-timeout")
+		h.expect_action("got-canvas") // expecting RequestVote in the mock
+		h.expect_action("got-canvas-timeout")
+		h.expect_action("got-candidate-state")
+
+		// set up a monitor that logs to _env.out
+		let mon: RaftServerMonitor = object val is RaftServerMonitor
+				let _h: TestHelper = h
+				fun val timeout_raised(timeout: RaftTimeout) =>
+					match timeout
+					| (let t: ElectionTimeout) => _h.complete_action("got-election-timeout")
+					| (let t: CanvasTimeout) => _h.complete_action("got-canvas-timeout")
+					end
+				fun val state_changed(mode: RaftMode, term: U64) =>
+					match mode
+					| (let m: Candidate) =>
+						_h.env.out.print("got state Candidate for term " + term.string())
+						_h.complete_action("got-candidate-state")
+					end
+			end
+
+		// register components that need to be shut down
+		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], mon)
+		let mock = ExpectCanvasMockRaftServer(h)
+		h.dispose_when_done(replica)
+		h.dispose_when_done(mock)
+
+		// register networkd endpoints
+		net.register(receiver_candidate_id, replica)
+		net.register(listener_candidate_id, mock)
+
 
 class iso _TestWaitForElection is UnitTest
 	""" Tests that a follower will start an election if it does not receive a heartbeat. """
@@ -132,7 +182,6 @@ actor ExpectCanvasMockRaftServer is RaftEndpoint[DummyCommand]
 		else
 			_h.fail("mock got an unexpected signal")
 		end
-		_h.complete(true)
 
 class iso _TestRequestVote is UnitTest
 	""" Tests response to requesting a vote. """
