@@ -6,7 +6,7 @@ class Log[T]
 	received by the leader.
 	"""
 
-	var term: U64
+	var term: RaftTerm
 	var command: T
 
 	new create(t: T) =>
@@ -20,7 +20,7 @@ class PersistentServerState[T]
 
 	// The latest term that the server has seen
 	// (initialised to 0 on first boot, increases monotonically)
-	var current_term: U64
+	var current_term: RaftTerm
 
 	// The candidate ID that receieved a vote in the current term
 	// (or none if no vote has been cast)

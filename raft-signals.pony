@@ -62,13 +62,13 @@ class val VoteRequest
 	"""
 
 	// Candidate's term
-	var term: U64
+	var term: RaftTerm
 
 	// Index of the candidates last log entry
 	var last_log_index: U64
 
 	// Term of the candidates last log entry
-	var last_log_term: U64
+	var last_log_term: RaftTerm
 
 	// Candidate requesting the vote
 	var candidate_id: NetworkAddress
@@ -82,7 +82,7 @@ class val VoteRequest
 class val VoteResponse
 
 	// The current_term, for the candidate to update itself
-	var term: U64
+	var term: RaftTerm
 
 	// A true vote means that the candidate received a vote
 	var vote_granted: Bool
@@ -109,13 +109,13 @@ class val AppendEntriesRequest[T: Any val]
 	"""
 
 	// Leader's term
-	var term: U64
+	var term: RaftTerm
 
 	// Index of the log entry immediately preceding the new ones.
 	var prev_log_index: U64
 
 	// Term of the `prev_log_index` entry.
-	var prev_log_term: U64
+	var prev_log_term: RaftTerm
 
 	// Leader's commit index.
 	var leader_commit: U64
@@ -137,7 +137,7 @@ class val AppendEntriesRequest[T: Any val]
 class val AppendEntriesResult
 
 	// Current term, for the leader to update itself
-	var term: U64
+	var term: RaftTerm
 
 	// True if the follower contained the entry matching prev_log_index and prev_log_term
 	var success: Bool
@@ -167,7 +167,7 @@ class val InstallSnapshotRequest
 	"""
 
 	// Leader's term
-	var term: U64
+	var term: RaftTerm
 
 	// Leader ID so that the follower can redirect clients
 	var leader_id: NetworkAddress
@@ -176,7 +176,7 @@ class val InstallSnapshotRequest
 	var last_included_index: U64
 
 	// The term of the last included index
-	var last_included_term: U64
+	var last_included_term: RaftTerm
 
 	// Flag set to true if this is the last chunk
 	var done: Bool
@@ -199,7 +199,7 @@ class val InstallSnapshotRequest
 class val InstallSnapshotResponse
 
 	// Current term, for the leader to update itself
-	var term: U64
+	var term: RaftTerm
 
 	new create() =>
 		term = 0

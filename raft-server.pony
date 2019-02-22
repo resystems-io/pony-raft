@@ -47,6 +47,7 @@ primitive Candidate
 primitive Leader
 
 type RaftMode is (Follower | Candidate | Leader)
+type RaftTerm is U64
 
 // -- trigger timeout logic
 
@@ -84,7 +85,7 @@ interface val RaftServerMonitor
 
 	// -- follow internal state changes and timeouts
 	fun val timeout_raised(timeout: RaftTimeout) => None
-	fun val state_changed(mode: RaftMode, term: U64) => None
+	fun val state_changed(mode: RaftMode, term: RaftTerm) => None
 
 class val NopRaftServerMonitor is RaftServerMonitor
 
@@ -187,8 +188,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_monitor.timeout_raised(timeout)
 		match timeout
 		| (let t: ElectionTimeout) => _start_candidate()
-		| (let t: CanvasTimeout) => None
-		| (let t: HeartbeatTimeout) => None
+		| (let t: CanvasTimeout) => None // FIXME
+		| (let t: HeartbeatTimeout) => None // FIXME
 		end
 
 	// -- internals
@@ -307,7 +308,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			canvas.candidate_id = _id
 
 			// TODO review are the log_term and log_index being set correctly?
-			canvas.last_log_term = try persistent.log(volatile.commit_index.usize())?.term else U64(0) end
+			canvas.last_log_term = try persistent.log(volatile.commit_index.usize())?.term else RaftTerm(0) end
 			canvas.last_log_index = volatile.commit_index
 
 			_network.send(p, consume canvas)

@@ -95,7 +95,7 @@ class iso _TestWaitForCanvas is UnitTest
 					| (let t: ElectionTimeout) => _h.complete_action("got-election-timeout")
 					| (let t: CanvasTimeout) => _h.complete_action("got-canvas-timeout")
 					end
-				fun val state_changed(mode: RaftMode, term: U64) =>
+				fun val state_changed(mode: RaftMode, term: RaftTerm) =>
 					match mode
 					| (let m: Candidate) =>
 						_h.env.out.print("got state Candidate for term " + term.string())
@@ -144,6 +144,7 @@ class iso _TestWaitForElection is UnitTest
 		h.expect_action("got-timeout")
 		h.expect_action("got-state")
 		h.expect_action("got-canvas") // expecting RequestVote in the mock
+		h.expect_action("got-canvas-again") // expecting RequestVote in the mock with a higher term
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor = object val is RaftServerMonitor
@@ -152,7 +153,7 @@ class iso _TestWaitForElection is UnitTest
 					if (timeout is ElectionTimeout) then
 						_h.complete_action("got-timeout")
 					end
-				fun val state_changed(mode: RaftMode, term: U64) =>
+				fun val state_changed(mode: RaftMode, term: RaftTerm) =>
 					if (mode is Candidate) then
 						_h.env.out.print("got state Candidate for term " + term.string())
 						_h.complete_action("got-state")
@@ -173,14 +174,22 @@ class iso _TestWaitForElection is UnitTest
 actor ExpectCanvasMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
+	var _term_seen: (RaftTerm | None)
 
 	new create(h: TestHelper) =>
 		_h = h
+		_term_seen = None
 
 	be apply(signal: RaftSignal[DummyCommand]) =>
 		match consume signal
 		| let s: VoteRequest =>
-			_h.complete_action("got-canvas")
+			match _term_seen
+			| None =>
+				_term_seen = s.term // the candidate term
+				_h.complete_action("got-canvas")
+			| (let t: RaftTerm) =>
+				None
+			end
 		else
 			_h.fail("mock got an unexpected signal")
 		end
