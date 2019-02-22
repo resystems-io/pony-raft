@@ -188,7 +188,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_monitor.timeout_raised(timeout)
 		match timeout
 		| (let t: ElectionTimeout) => _start_candidate()
-		| (let t: CanvasTimeout) => None // FIXME
+		| (let t: CanvasTimeout) => _start_election()
 		| (let t: HeartbeatTimeout) => None // FIXME
 		end
 

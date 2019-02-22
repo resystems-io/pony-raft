@@ -115,9 +115,6 @@ class iso _TestWaitForCanvas is UnitTest
 		net.register(receiver_candidate_id, replica)
 		net.register(listener_candidate_id, mock)
 
-		h.fail("need to actually check that a new election was started")
-
-
 class iso _TestWaitForElection is UnitTest
 	""" Tests that a follower will start an election if it does not receive a heartbeat. """
 
@@ -188,7 +185,9 @@ actor ExpectCanvasMockRaftServer is RaftEndpoint[DummyCommand]
 				_term_seen = s.term // the candidate term
 				_h.complete_action("got-canvas")
 			| (let t: RaftTerm) =>
-				None
+				if s.term > t then
+					_h.complete_action("got-canvas-again")
+				end
 			end
 		else
 			_h.fail("mock got an unexpected signal")
