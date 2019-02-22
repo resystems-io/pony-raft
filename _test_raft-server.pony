@@ -86,6 +86,7 @@ class iso _TestWaitForCanvas is UnitTest
 		h.expect_action("got-canvas") // expecting RequestVote in the mock
 		h.expect_action("got-canvas-timeout")
 		h.expect_action("got-candidate-state")
+		h.expect_action("got-canvas-again") // expecting RequestVote in the mock with a higher term
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor = object val is RaftServerMonitor
@@ -144,7 +145,6 @@ class iso _TestWaitForElection is UnitTest
 		h.expect_action("got-timeout")
 		h.expect_action("got-state")
 		h.expect_action("got-canvas") // expecting RequestVote in the mock
-		h.expect_action("got-canvas-again") // expecting RequestVote in the mock with a higher term
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor = object val is RaftServerMonitor
