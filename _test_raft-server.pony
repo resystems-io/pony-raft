@@ -52,7 +52,7 @@ class iso _TestConvertToLeader is UnitTest
 		h.fail("not yet implemented")
 
 class iso _TestConvertToFollower is UnitTest
-	""" Tests that a candidate will convert to a follower a peer is elected. """
+	""" Tests that a candidate will convert to a follower if a peer is elected. """
 	new iso create() => None
 	fun name(): String => "raft:server:convert-to-follower"
 	fun ref apply(h: TestHelper) =>
