@@ -139,6 +139,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		, network: RaftNetwork[T]
 		, peers: Array[NetworkAddress] val
 		, monitor: RaftServerMonitor = NopRaftServerMonitor
+		, initial_term: RaftTerm = 0 // really just for testing
 		) =>
 
 		// seed the random number generator
@@ -162,7 +163,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_lastKnownLeader = 0
 		_mode = Follower
 		_mode_timer = Timer(object iso is TimerNotify end, 1, 1)
-		persistent.current_term = 0
+		persistent.current_term = initial_term
 
 		// start in follower mode
 		_start_follower()
@@ -248,6 +249,14 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
 		_monitor.append_req(_id)
 		// decide if this request should be honoured (we might be ahead in a new term)
+		if (appendreq.term < persistent.current_term) then
+			let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
+			reply.success = false
+			reply.term = persistent.current_term
+			return
+
+			_network.send(appendreq.leader_id, consume reply)
+		end
 		// if accepted, the perform mode changes (we might be behind and should bow to a new leader)
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
 		// if accepted, then actually append and process the log agains the state machine
