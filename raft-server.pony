@@ -48,6 +48,7 @@ primitive Leader
 
 type RaftMode is (Follower | Candidate | Leader)
 type RaftTerm is U64
+type RaftIndex is U64 // TODO consider changing to USize
 
 // -- trigger timeout logic
 

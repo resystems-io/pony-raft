@@ -65,7 +65,7 @@ class val VoteRequest
 	var term: RaftTerm
 
 	// Index of the candidates last log entry
-	var last_log_index: U64
+	var last_log_index: RaftIndex
 
 	// Term of the candidates last log entry
 	var last_log_term: RaftTerm
@@ -112,13 +112,13 @@ class val AppendEntriesRequest[T: Any val]
 	var term: RaftTerm
 
 	// Index of the log entry immediately preceding the new ones.
-	var prev_log_index: U64
+	var prev_log_index: RaftIndex
 
 	// Term of the `prev_log_index` entry.
 	var prev_log_term: RaftTerm
 
 	// Leader's commit index.
-	var leader_commit: U64
+	var leader_commit: RaftIndex
 
 	// Leader ID used so that the follower can redirect cilents.
 	var leader_id: NetworkAddress
@@ -173,7 +173,7 @@ class val InstallSnapshotRequest
 	var leader_id: NetworkAddress
 
 	// The last included index (the snapshot replaces all entries up through to and including this index)
-	var last_included_index: U64
+	var last_included_index: RaftIndex
 
 	// The term of the last included index
 	var last_included_term: RaftTerm
@@ -182,7 +182,7 @@ class val InstallSnapshotRequest
 	var done: Bool
 
 	// Byte offset where the chunk is positioned in the snapshot file
-	var offset: U64
+	var offset: USize
 
 	// Raw byte data of the snapshot chunk, starting at the given offset
 	embed data: Array[U8]
