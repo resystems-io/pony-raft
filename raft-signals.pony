@@ -124,7 +124,7 @@ class val AppendEntriesRequest[T: Any val]
 	var leader_id: NetworkAddress
 
 	// Log entries
-	embed entries: Array[T]
+	embed entries: Array[Log[T]]
 
 	new create() =>
 		term = 0
@@ -132,7 +132,7 @@ class val AppendEntriesRequest[T: Any val]
 		prev_log_term = 0
 		leader_commit = 0
 		leader_id = 0
-		entries = Array[T](0)
+		entries = Array[Log[T]](0)
 
 class val AppendEntriesResult
 
