@@ -225,7 +225,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 				| let s: NetworkAddress => s == votereq.candidate_id
 				end
 			ires.vote_granted = if could_vote then
-					// check if the candidate's log is as up-to-date as what we have here
+					// check if the candidate's log is at least as up-to-date as what we have here
 					if (votereq.last_log_term >= persistent.current_term)
 						and (votereq.last_log_index >= volatile.commit_index) then
 							persistent.voted_for = votereq.candidate_id
@@ -254,9 +254,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
 			reply.success = false
 			reply.term = persistent.current_term
-			return
-
 			_network.send(appendreq.leader_id, consume reply)
+			return
 		end
 		// if accepted, the perform mode changes (we might be behind and should bow to a new leader)
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
