@@ -92,12 +92,12 @@ class iso _TestConvertToFollower is UnitTest
 		h.expect_action("got-follower-convert")
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor = object val is RaftServerMonitor
+		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
 				let _h: TestHelper = h
 				var _seen_follower: Bool = false
 				var _is_candidate: Bool = false
-				fun val timeout_raised(timeout: RaftTimeout) => None
-				fun val state_changed(mode: RaftMode, term: RaftTerm) =>
+				fun ref timeout_raised(timeout: RaftTimeout) => None
+				fun ref state_changed(mode: RaftMode, term: RaftTerm) =>
 					match mode
 					| Follower =>
 						_h.env.out.print("got state Follower for term " + term.string())
@@ -117,7 +117,7 @@ class iso _TestConvertToFollower is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], mon)
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], consume mon)
 		let mock = HeartbeatOnVoteMockRaftServer(h, net, listener_candidate_id)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)

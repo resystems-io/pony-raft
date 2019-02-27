@@ -75,18 +75,18 @@ actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
 interface iso RaftServerMonitor
 
 	// -- follow incoming chatter
-	fun box vote_req(id: NetworkAddress, signal: VoteRequest val) => None
-	fun box vote_res(id: NetworkAddress, signal: VoteResponse) => None
-	fun box append_req(id: NetworkAddress) => None
-	fun box append_res(id: NetworkAddress) => None
-	fun box command_req(id: NetworkAddress) => None
-	fun box command_res(id: NetworkAddress) => None
-	fun box install_req(id: NetworkAddress) => None
-	fun box install_res(id: NetworkAddress) => None
+	fun ref vote_req(id: NetworkAddress, signal: VoteRequest val) => None
+	fun ref vote_res(id: NetworkAddress, signal: VoteResponse) => None
+	fun ref append_req(id: NetworkAddress) => None
+	fun ref append_res(id: NetworkAddress) => None
+	fun ref command_req(id: NetworkAddress) => None
+	fun ref command_res(id: NetworkAddress) => None
+	fun ref install_req(id: NetworkAddress) => None
+	fun ref install_res(id: NetworkAddress) => None
 
 	// -- follow internal state changes and timeouts
-	fun box timeout_raised(timeout: RaftTimeout) => None
-	fun box state_changed(mode: RaftMode, term: RaftTerm) => None
+	fun ref timeout_raised(timeout: RaftTimeout) => None
+	fun ref state_changed(mode: RaftMode, term: RaftTerm) => None
 
 class iso NopRaftServerMonitor is RaftServerMonitor
 
