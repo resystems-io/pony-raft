@@ -72,23 +72,23 @@ actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
 
 // -- tracing
 
-interface val RaftServerMonitor
+interface iso RaftServerMonitor
 
 	// -- follow incoming chatter
-	fun val vote_req(id: NetworkAddress, signal: VoteRequest val) => None
-	fun val vote_res(id: NetworkAddress, signal: VoteResponse) => None
-	fun val append_req(id: NetworkAddress) => None
-	fun val append_res(id: NetworkAddress) => None
-	fun val command_req(id: NetworkAddress) => None
-	fun val command_res(id: NetworkAddress) => None
-	fun val install_req(id: NetworkAddress) => None
-	fun val install_res(id: NetworkAddress) => None
+	fun box vote_req(id: NetworkAddress, signal: VoteRequest val) => None
+	fun box vote_res(id: NetworkAddress, signal: VoteResponse) => None
+	fun box append_req(id: NetworkAddress) => None
+	fun box append_res(id: NetworkAddress) => None
+	fun box command_req(id: NetworkAddress) => None
+	fun box command_res(id: NetworkAddress) => None
+	fun box install_req(id: NetworkAddress) => None
+	fun box install_res(id: NetworkAddress) => None
 
 	// -- follow internal state changes and timeouts
-	fun val timeout_raised(timeout: RaftTimeout) => None
-	fun val state_changed(mode: RaftMode, term: RaftTerm) => None
+	fun box timeout_raised(timeout: RaftTimeout) => None
+	fun box state_changed(mode: RaftMode, term: RaftTerm) => None
 
-class val NopRaftServerMonitor is RaftServerMonitor
+class iso NopRaftServerMonitor is RaftServerMonitor
 
 interface tag RaftRaisable
 	be raise(timeout: RaftTimeout) => None
@@ -116,7 +116,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _repeat_election_timeout: U64 = 200_000_000 // 300 ms
 
 	let _rand: Random
-	let _monitor: RaftServerMonitor
+	let _monitor: RaftServerMonitor iso
 	let _timers: Timers
 	let _network: RaftNetwork[T]
 	let _id: NetworkAddress
@@ -139,7 +139,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		, timers: Timers
 		, network: RaftNetwork[T]
 		, peers: Array[NetworkAddress] val
-		, monitor: RaftServerMonitor = NopRaftServerMonitor
+		, monitor: RaftServerMonitor iso = NopRaftServerMonitor
 		, initial_term: RaftTerm = 0 // really just for testing
 		) =>
 
@@ -147,7 +147,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		(let sec: I64, let nsec: I64) = Time.now()
 		_rand = Rand(sec.u64(), nsec.u64())
 
-		_monitor = monitor
+		_monitor = consume monitor
 		_id = id
 		_timers = timers
 		_network = network
@@ -225,7 +225,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 				| let s: NetworkAddress => s == votereq.candidate_id
 				end
 			ires.vote_granted = if could_vote then
-					// check if the candidate's log is as up-to-date as what we have here
+					// check if the candidate's log is at least as up-to-date as what we have here
 					if (votereq.last_log_term >= persistent.current_term)
 						and (votereq.last_log_index >= volatile.commit_index) then
 							persistent.voted_for = votereq.candidate_id
@@ -254,9 +254,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
 			reply.success = false
 			reply.term = persistent.current_term
-			return
-
 			_network.send(appendreq.leader_id, consume reply)
+			return
 		end
 		// if accepted, the perform mode changes (we might be behind and should bow to a new leader)
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
