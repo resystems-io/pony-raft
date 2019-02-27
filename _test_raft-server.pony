@@ -55,16 +55,103 @@ class iso _TestConvertToLeader is UnitTest
 class iso _TestConvertToFollower is UnitTest
 	""" Tests that a candidate will convert to a follower if a peer is elected. """
 
-	// check that a candidate becomes a follower if is receives
-	// suitable AppendEntries from a new leader
+	/*
+	 * see: §5.2 "While waiting for votes, a candidate may receive an
+	 * AppendEntries RPC from another server claiming to be
+	 * leader. If the leader’s term (included in its RPC) is at least
+	 * as large as the candidate’s current term, then the candidate
+	 * recognizes the leader as legitimate and returns to follower
+	 * state. If the term in the RPC is smaller than the candidate’s
+	 * current term, then the candidate rejects the RPC and con-
+	 * tinues in candidate state."
+	 */
 
-	new iso create() => None
+	// wait for a replica to become a candidate
+	// publish a "heartbeat" as though another replica had become a leader (i.e. same or higher term)
+	// wait for the replica to convert to being a follower
+
+	let _timers: Timers
+
+	new iso create() =>
+		_timers = Timers
+
 	fun name(): String => "raft:server:convert-to-follower"
+
 	fun ref apply(h: TestHelper) =>
-		h.fail("not yet implemented")
+		h.long_test(1_000_000_000)
+
+		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
+		let listener_candidate_id: NetworkAddress = 2 // observer validating the replies
+
+		// create a network
+		let netmon = EnvNetworkMonitor(h.env)
+		let net = Network[RaftSignal[DummyCommand]]()
+		h.expect_action("got-follower-start")
+		h.expect_action("got-candidate") // expecting RequestVote in the mock
+		h.expect_action("got-vote-request")
+		h.expect_action("got-follower-convert")
+
+		// set up a monitor that logs to _env.out
+		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
+				let _h: TestHelper = h
+				var _seen_follower: Bool = false
+				var _is_candidate: Bool = false
+				fun ref timeout_raised(timeout: RaftTimeout) => None
+				fun ref state_changed(mode: RaftMode, term: RaftTerm) =>
+					match mode
+					| Follower =>
+						_h.env.out.print("got state Follower for term " + term.string())
+						if _seen_follower and _is_candidate then
+							h.complete_action("got-follower-convert")
+						else
+							h.complete_action("got-follower-start")
+						end
+						_seen_follower = true
+						_is_candidate = true
+					| Candidate =>
+						_h.env.out.print("got state Candidate for term " + term.string())
+						_is_candidate = true
+						_h.complete_action("got-candidate")
+					end
+			end
+
+		// register components that need to be shut down
+		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], consume mon)
+		let mock = HeartbeatOnVoteMockRaftServer(h, net, listener_candidate_id)
+		h.dispose_when_done(replica)
+		h.dispose_when_done(mock)
+
+		// register network endpoints
+		net.register(receiver_candidate_id, replica)
+		net.register(listener_candidate_id, mock)
+
+actor HeartbeatOnVoteMockRaftServer is RaftEndpoint[DummyCommand]
+
+	let _h: TestHelper
+	let _net: Network[RaftSignal[DummyCommand]]
+	let _id: NetworkAddress
+
+	new create(h: TestHelper, net: Network[RaftSignal[DummyCommand]], id: NetworkAddress) =>
+		_h = h
+		_net = net
+		_id = id
+
+	be apply(signal: RaftSignal[DummyCommand]) =>
+		match consume signal
+		| let s: VoteRequest =>
+			_h.complete_action("got-vote-request")
+			// send an append with a lower term
+			let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+			append.term = s.term // set the same term seen in the vote request
+			append.prev_log_index = 0
+			append.prev_log_term = 0
+			append.leader_commit = 0
+			append.leader_id = _id
+		end
 
 class iso _TestFailLowerTermAppend is UnitTest
-	""" Tests that a candidate will convert to a follower if a peer is elected. """
+	""" Tests that a replica will fail to append logs for lower terms. """
 
 	// spin up a follower
 	// send it and append entries with a lower term
