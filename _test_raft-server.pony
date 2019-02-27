@@ -132,10 +132,10 @@ actor HeartbeatOnVoteMockRaftServer is RaftEndpoint[DummyCommand]
 	let _net: Network[RaftSignal[DummyCommand]]
 	let _id: NetworkAddress
 
-	new create(h: TestHelper, net: Network[RaftSignal[DummyCommand]], id: NetworkAddress) =>
+	new create(h: TestHelper, net: Network[RaftSignal[DummyCommand]], faux_leader_id: NetworkAddress) =>
 		_h = h
 		_net = net
-		_id = id
+		_id = faux_leader_id
 
 	be apply(signal: RaftSignal[DummyCommand]) =>
 		match consume signal
@@ -148,6 +148,8 @@ actor HeartbeatOnVoteMockRaftServer is RaftEndpoint[DummyCommand]
 			append.prev_log_term = 0
 			append.leader_commit = 0
 			append.leader_id = _id
+
+			_net.send(s.candidate_id, consume append)
 		end
 
 class iso _TestFailLowerTermAppend is UnitTest

@@ -167,7 +167,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		persistent.current_term = initial_term
 
 		// start in follower mode
-		_start_follower()
+		_start_follower(initial_term)
 
 	be stop() =>
 		_timers.cancel(_mode_timer)
@@ -249,6 +249,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
   // -- -- apending
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
 		_monitor.append_req(_id)
+		// decide if we should actually become a follower
+		// TODO
 		// decide if this request should be honoured (we might be ahead in a new term)
 		if (appendreq.term < persistent.current_term) then
 			let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
@@ -277,7 +279,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// -- -- consensus module
 
-	fun ref _start_follower() =>
+	fun ref _start_follower(term: RaftTerm) =>
 		"""
 		Follower state:
 
@@ -285,6 +287,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		start its own election.
 		"""
 		_set_mode(Follower)
+		persistent.current_term = term
 
 		// randomise the timeout between [150,300) ms
 		let swash = _swash(_lower_election_timeout, _upper_election_timeout)
