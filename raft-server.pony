@@ -173,8 +173,21 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_timers.cancel(_mode_timer)
 
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
+
+		// if any RPC has a larger 'term' then convert to and continue as a follower
+		// FIXME we should be able to do the following... but it breaks 'raft:server:vote'
+		// match signal
+		// | (let ht: HasTerm) =>
+		// 	if ht.signal_term() > persistent.current_term then
+		// 		_start_follower(ht.signal_term())
+		// 	end
+		// end
+
 		match consume signal
+		// signal from the client with a command
 		| let s: CommandEnvelope[T] => _process_command(consume s) // note, no matching ResponseEnvelope
+
+		// raft coordindation singals
 		| let s: VoteRequest => _process_vote_request(consume s)
 		| let s: VoteResponse => _process_vote_response(consume s)
 		| let s: AppendEntriesRequest[T] => _process_append_entries_request(consume s)

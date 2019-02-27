@@ -21,6 +21,10 @@ type RaftSignal[T: Any val] is (
 	| RaftClientSignal[T] val
 )
 
+// -- common accessors
+interface val HasTerm
+	fun val signal_term(): RaftTerm => 0
+
 // -- commands
 
 class val CommandEnvelope[T: Any #send]
@@ -79,6 +83,9 @@ class val VoteRequest
 		last_log_term = 0
 		candidate_id = 0
 
+	fun val signal_term(): RaftTerm =>
+		term
+
 class val VoteResponse
 
 	// The current_term, for the candidate to update itself
@@ -91,6 +98,8 @@ class val VoteResponse
 		term = 0
 		vote_granted = false
 
+	fun val signal_term(): RaftTerm =>
+		term
 
 // -- append
 
@@ -134,6 +143,9 @@ class val AppendEntriesRequest[T: Any val]
 		leader_id = 0
 		entries = Array[Log[T]](0)
 
+	fun val signal_term(): RaftTerm =>
+		term
+
 class val AppendEntriesResult
 
 	// Current term, for the leader to update itself
@@ -145,6 +157,9 @@ class val AppendEntriesResult
 	new create() =>
 		term = 0
 		success = false
+
+	fun val signal_term(): RaftTerm =>
+		term
 
 // -- snapshot
 
@@ -196,6 +211,9 @@ class val InstallSnapshotRequest
 		offset = 0
 		data = Array[U8](0)
 
+	fun val signal_term(): RaftTerm =>
+		term
+
 class val InstallSnapshotResponse
 
 	// Current term, for the leader to update itself
@@ -203,3 +221,6 @@ class val InstallSnapshotResponse
 
 	new create() =>
 		term = 0
+
+	fun val signal_term(): RaftTerm =>
+		term
