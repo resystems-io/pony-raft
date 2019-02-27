@@ -252,14 +252,14 @@ class iso _TestWaitForCanvas is UnitTest
 		h.expect_action("got-canvas-again") // expecting RequestVote in the mock with a higher term
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor = object val is RaftServerMonitor
+		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
 				let _h: TestHelper = h
-				fun val timeout_raised(timeout: RaftTimeout) =>
+				fun box timeout_raised(timeout: RaftTimeout) =>
 					match timeout
 					| (let t: ElectionTimeout) => _h.complete_action("got-election-timeout")
 					| (let t: CanvasTimeout) => _h.complete_action("got-canvas-timeout")
 					end
-				fun val state_changed(mode: RaftMode, term: RaftTerm) =>
+				fun box state_changed(mode: RaftMode, term: RaftTerm) =>
 					match mode
 					| (let m: Candidate) =>
 						_h.env.out.print("got state Candidate for term " + term.string())
@@ -269,7 +269,7 @@ class iso _TestWaitForCanvas is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], mon)
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], consume mon)
 		let mock = ExpectCanvasMockRaftServer(h)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)
@@ -307,13 +307,13 @@ class iso _TestWaitForElection is UnitTest
 		h.expect_action("got-canvas") // expecting RequestVote in the mock
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor = object val is RaftServerMonitor
+		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
 				let _h: TestHelper = h
-				fun val timeout_raised(timeout: RaftTimeout) =>
+				fun box timeout_raised(timeout: RaftTimeout) =>
 					if (timeout is ElectionTimeout) then
 						_h.complete_action("got-timeout")
 					end
-				fun val state_changed(mode: RaftMode, term: RaftTerm) =>
+				fun box state_changed(mode: RaftMode, term: RaftTerm) =>
 					if (mode is Candidate) then
 						_h.env.out.print("got state Candidate for term " + term.string())
 						_h.complete_action("got-state")
@@ -322,7 +322,7 @@ class iso _TestWaitForElection is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], mon)
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], consume mon)
 		let mock = ExpectCanvasMockRaftServer(h)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)
@@ -388,21 +388,21 @@ class iso _TestRequestVote is UnitTest
 		let net = Network[RaftSignal[DummyCommand]](netmon)
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor = object val is RaftServerMonitor
+		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
 				let _env: Env = h.env
-				fun val vote_req(id: NetworkAddress, signal: VoteRequest val) => _env.out.print("vote req: " + id.string())
-				fun val vote_res(id: NetworkAddress, signal: VoteResponse val) => _env.out.print("vote res: " + id.string())
-				fun val append_req(id: NetworkAddress) => _env.out.print("append req: " + id.string())
-				fun val append_res(id: NetworkAddress) => _env.out.print("append res: " + id.string())
-				fun val command_req(id: NetworkAddress) => _env.out.print("command req: " + id.string())
-				fun val command_res(id: NetworkAddress) => _env.out.print("command res: " + id.string())
-				fun val install_req(id: NetworkAddress) => _env.out.print("install req: " + id.string())
-				fun val install_res(id: NetworkAddress) => _env.out.print("install res: " + id.string())
+				fun box vote_req(id: NetworkAddress, signal: VoteRequest val) => _env.out.print("vote req: " + id.string())
+				fun box vote_res(id: NetworkAddress, signal: VoteResponse val) => _env.out.print("vote res: " + id.string())
+				fun box append_req(id: NetworkAddress) => _env.out.print("append req: " + id.string())
+				fun box append_res(id: NetworkAddress) => _env.out.print("append res: " + id.string())
+				fun box command_req(id: NetworkAddress) => _env.out.print("command req: " + id.string())
+				fun box command_res(id: NetworkAddress) => _env.out.print("command res: " + id.string())
+				fun box install_req(id: NetworkAddress) => _env.out.print("install req: " + id.string())
+				fun box install_res(id: NetworkAddress) => _env.out.print("install res: " + id.string())
 			end
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress:
-				receiver_candidate_id; listener_candidate_id;3], mon)
+				receiver_candidate_id; listener_candidate_id;3], consume mon)
 		let mock = ExpectVoteMockRaftServer(h)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)
