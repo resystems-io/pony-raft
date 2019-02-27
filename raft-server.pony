@@ -249,8 +249,23 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
   // -- -- apending
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
 		_monitor.append_req(_id)
-		// decide if we should actually become a follower
-		// TODO
+		// decide if we should actually just become a follower
+		let convert_to_follower: Bool = if
+			((_mode is Candidate) and (appendreq.term >= persistent.current_term)) then
+				// candidate saw a new leader in the same term
+				true
+			elseif (appendreq.term > persistent.current_term) then
+				// non-candidate saw a higher term
+				true
+			else
+				false
+			end
+
+		if convert_to_follower then
+			// convert to a follower and continue to process othe signal
+			_start_follower(appendreq.term)
+		end
+
 		// decide if this request should be honoured (we might be ahead in a new term)
 		if (appendreq.term < persistent.current_term) then
 			let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
