@@ -42,13 +42,17 @@ interface StateMachine[T: Any #send]
 
 // -- keep track of server mode
 
+
 primitive Follower
+	fun text():String val => "follower"
 primitive Candidate
+	fun text():String val => "candidate"
 primitive Leader
+	fun text():String val => "leader"
 
 type RaftMode is (Follower | Candidate | Leader)
 type RaftTerm is U64
-type RaftIndex is U64 // TODO consider changing to USize
+type RaftIndex is USize
 
 // -- trigger timeout logic
 
@@ -175,13 +179,12 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
 
 		// if any RPC has a larger 'term' then convert to and continue as a follower
-		// FIXME we should be able to do the following... but it breaks 'raft:server:vote'
-		// match signal
-		// | (let ht: HasTerm) =>
-		// 	if ht.signal_term() > persistent.current_term then
-		// 		_start_follower(ht.signal_term())
-		// 	end
-		// end
+		match signal
+		| (let ht: HasTerm) =>
+			if persistent.current_term < ht.signal_term() then
+				_start_follower(ht.signal_term())
+			end
+		end
 
 		match consume signal
 		// signal from the client with a command
@@ -239,8 +242,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 				end
 			ires.vote_granted = if could_vote then
 					// check if the candidate's log is at least as up-to-date as what we have here
-					if (votereq.last_log_term >= persistent.current_term)
-						and (votereq.last_log_index >= volatile.commit_index) then
+					if _peer_up_to_date(votereq.last_log_term, votereq.last_log_index) then
 							persistent.voted_for = votereq.candidate_id
 							true
 					else
@@ -260,6 +262,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		None
 
   // -- -- apending
+
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
 		_monitor.append_req(_id)
 		// decide if we should actually just become a follower
@@ -297,6 +300,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		None
 
 	// -- -- snapshots
+
 	fun ref _process_install_snapshot_request(snapshotreq: InstallSnapshotRequest) =>
 		_monitor.install_res(_id)
 		None
@@ -307,6 +311,39 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// -- -- consensus module
 
+	fun box _peer_up_to_date(peer_last_log_term: RaftTerm, peer_last_log_index: RaftIndex): Bool =>
+		"""
+		Determine if the peer log is more up-to-date than this replica.
+
+		§5.4.1 "Raft determines which of two logs is more up-to-date
+			by comparing the index and term of the last entries in the
+			logs. If the logs have last entries with different terms, then
+			the log with the later term is more up-to-date. If the logs
+			end with the same term, then whichever log is longer is
+			more up-to-date."
+
+		"""
+		try
+			// fetch our last log entry
+			let last_log: Log[T] box = persistent.log(volatile.commit_index)?
+			// check how has seen the latest term
+			if (last_log.term < peer_last_log_term) then
+				true
+			elseif (last_log.term > peer_last_log_term) then
+				false
+			else
+				// last terms are equal so check the commit index
+				if (peer_last_log_index >= volatile.commit_index) then
+					true
+				else
+					false
+				end
+			end
+		else
+			// hmmm, our log probably empty (maybe we should correct our commit index?)
+			true
+		end
+
 	fun ref _start_follower(term: RaftTerm) =>
 		"""
 		Follower state:
@@ -314,8 +351,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		The follower will honour heartbeats and log updates, but will also set a timer to potentially
 		start its own election.
 		"""
-		_set_mode(Follower)
 		persistent.current_term = term
+		_set_mode(Follower)
 
 		// randomise the timeout between [150,300) ms
 		let swash = _swash(_lower_election_timeout, _upper_election_timeout)

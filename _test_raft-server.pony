@@ -392,14 +392,16 @@ class iso _TestRequestVote is UnitTest
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
 				let _env: Env = h.env
-				fun box vote_req(id: NetworkAddress, signal: VoteRequest val) => _env.out.print("vote req: " + id.string())
-				fun box vote_res(id: NetworkAddress, signal: VoteResponse val) => _env.out.print("vote res: " + id.string())
+				fun box vote_req(id: NetworkAddress, signal: VoteRequest val) => _env.out.print("vote req: " + id.string() + " term:" + signal.term.string())
+				fun box vote_res(id: NetworkAddress, signal: VoteResponse val) => _env.out.print("vote res: " + id.string() + " term:" + signal.term.string())
 				fun box append_req(id: NetworkAddress) => _env.out.print("append req: " + id.string())
 				fun box append_res(id: NetworkAddress) => _env.out.print("append res: " + id.string())
 				fun box command_req(id: NetworkAddress) => _env.out.print("command req: " + id.string())
 				fun box command_res(id: NetworkAddress) => _env.out.print("command res: " + id.string())
 				fun box install_req(id: NetworkAddress) => _env.out.print("install req: " + id.string())
 				fun box install_res(id: NetworkAddress) => _env.out.print("install res: " + id.string())
+				fun box timeout_raised(timeout: RaftTimeout) => _env.out.print("timeout raised")
+				fun box state_changed(mode: RaftMode, term: RaftTerm) => _env.out.print("mode changed: " + mode.text() + " term:" + term.string())
 			end
 
 		// register components that need to be shut down
@@ -450,7 +452,7 @@ actor ExpectVoteMockRaftServer is RaftEndpoint[DummyCommand]
 		// VoteResponse.{term: U64, vote_granted: Bool}
 		match consume signal
 		| let s: VoteResponse =>
-			_h.env.out.print("mock got vote response")
+			_h.env.out.print("mock got vote response, term: " + s.term.string())
 			_h.assert_true(s.vote_granted, "mock expected to get a vote")
 		else
 			_h.fail("mock got an unexpected signal")
