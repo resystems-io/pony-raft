@@ -118,7 +118,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _lower_election_timeout: U64 = 150_000_000 // 150 ms
 	let _upper_election_timeout: U64 = 300_000_000 // 300 ms
 	let _repeat_election_timeout: U64 = 200_000_000 // 300 ms
-	let _hearbeat_timeout: U64 = 50_000_000 // 50 ms
+
+	/*
+		§9.3 "The leader was crashed uniformly randomly within
+		its heartbeat interval, which was half of the minimum
+		election timeout for all tests."
+	*/
+	let _hearbeat_timeout: U64 = 75_000_000 // 75 ms
 
 	let _rand: Random
 	let _monitor: RaftServerMonitor iso
@@ -302,23 +308,25 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			return
 		end
 		// if accepted, the perform mode changes (we might be behind and should bow to a new leader)
+		// TODO
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
+		// TODO
 		// if accepted, then actually append and process the log agains the state machine
-		None
+		// TODO
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
 		_monitor.append_res(_id)
-		None
+		// TODO
 
 	// -- -- snapshots
 
 	fun ref _process_install_snapshot_request(snapshotreq: InstallSnapshotRequest) =>
 		_monitor.install_res(_id)
-		None
+		// TODO
 
 	fun ref _process_install_snapshot_response(snapshotres: InstallSnapshotResponse) =>
 		_monitor.install_req(_id)
-		None
+		// TODO
 
 	// -- -- consensus module
 
