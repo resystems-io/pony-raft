@@ -17,7 +17,7 @@ actor RaftServerTests is TestList
 	fun tag tests(test: PonyTest) =>
 		test(_TestArrayWithout)
 		test(_TestRequestVote)
-		test(_TestWaitForElection)
+		test(_TestConvertToCandidate)
 		test(_TestWaitForCanvas)
 		test(_TestFailLowerTermAppend)
 		test(_TestConvertToLeader)
@@ -47,6 +47,11 @@ class iso _TestWaitForHeartbeat is UnitTest
 
 class iso _TestConvertToLeader is UnitTest
 	""" Tests that a candidate will convert to a leader if it gets enough votes. """
+
+	// wait for a replica to become a candidate
+	// publish faux votes from a majority of peers
+	// wait for the replica to become a leader
+
 	new iso create() => None
 	fun name(): String => "raft:server:convert-to-leader"
 	fun ref apply(h: TestHelper) =>
@@ -280,8 +285,10 @@ class iso _TestWaitForCanvas is UnitTest
 		net.register(receiver_candidate_id, replica)
 		net.register(listener_candidate_id, mock)
 
-class iso _TestWaitForElection is UnitTest
-	""" Tests that a follower will start an election if it does not receive a heartbeat. """
+class iso _TestConvertToCandidate is UnitTest
+	"""
+	Tests that a follower will convert to being a candidate and start an election if it does not receive a heartbeat.
+	"""
 
 	// simply start a replica which will default to 'follower' mode
 	// wait for the timeout via the monitor
@@ -293,7 +300,7 @@ class iso _TestWaitForElection is UnitTest
 	new iso create() =>
 		_timers = Timers
 
-	fun name(): String => "raft:server:election"
+	fun name(): String => "raft:server:convert-to-candidate"
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
