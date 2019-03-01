@@ -58,13 +58,15 @@ class VolatileCandidateState
 	Record the number of votes received during an election round.
 	"""
 
-	var votes: U16
+	var votes: USize // hmmm, don't really need that size
 
 	new create() =>
 		votes = 0
 
-	fun ref vote() =>
-		votes = votes + 1
+	fun ref vote(granted: Bool = true) =>
+		if granted then
+			votes = votes + 1
+		end
 
 class VolatileLeaderState
 	"""

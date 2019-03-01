@@ -118,12 +118,14 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _lower_election_timeout: U64 = 150_000_000 // 150 ms
 	let _upper_election_timeout: U64 = 300_000_000 // 300 ms
 	let _repeat_election_timeout: U64 = 200_000_000 // 300 ms
+	let _hearbeat_timeout: U64 = 50_000_000 // 50 ms
 
 	let _rand: Random
 	let _monitor: RaftServerMonitor iso
 	let _timers: Timers
 	let _network: RaftNetwork[T]
 	let _id: NetworkAddress
+	let _majority: USize
 	let _peers: Array[NetworkAddress]
 	let _machine: StateMachine[T] iso					// implements the application logic
 
@@ -157,6 +159,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_network = network
 
 		// copy peers but remove self
+		_majority = peers.size().shr(1) + 1 // we assume that the peer set odd in size
 		_peers = try ArrayWithout[NetworkAddress].without(id, peers)? else [as NetworkAddress: id] end
 
 		// record the initial state machine
@@ -262,7 +265,12 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	fun ref _process_vote_response(voteres: VoteResponse) =>
 		_monitor.vote_res(_id, voteres)
-		None
+		if (_mode isnt Candidate) then return end // ignore late vote responses
+		candidate.vote(voteres.vote_granted)
+		// see if we got a majority
+		if candidate.votes >= _majority then
+			_start_leader()
+		end
 
   // -- -- apending
 
@@ -408,12 +416,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_set_timer(consume mt)
 
 	fun ref _start_leader() =>
+		leader = VolatileLeaderState
 		_set_mode(Leader)
 		// cancel any previous timers
 		_timers.cancel(_mode_timer)
 
 		// set up timer to send out for append-entries heart beat
-		let mt: Timer iso = Timer(object iso is TimerNotify end, 500_000_000, 500_000_000) // 500ms
+		let mt: Timer iso = Timer(_Timeout(this, HeartbeatTimeout), 0, _hearbeat_timeout)
 		_set_timer(consume mt)
 
 	fun ref _set_timer(mt: Timer iso) =>

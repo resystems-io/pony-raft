@@ -15,6 +15,7 @@ actor RaftServerTests is TestList
 		None
 
 	fun tag tests(test: PonyTest) =>
+		test(_TestMajority)
 		test(_TestArrayWithout)
 		test(_TestRequestVote)
 		test(_TestConvertToCandidate)
@@ -23,6 +24,18 @@ actor RaftServerTests is TestList
 		test(_TestConvertToLeader)
 		test(_TestConvertToFollower)
 		test(_TestWaitForHeartbeat)
+
+class iso _TestMajority is UnitTest
+	""" Tests majority calculation. """
+	new iso create() => None
+	fun name(): String => "raft:server:majority"
+	fun ref apply(h: TestHelper) =>
+		h.assert_eq[USize](3, _majority(5))
+		h.assert_eq[USize](2, _majority(3))
+		h.assert_eq[USize](9, _majority(17))
+		h.assert_eq[USize](4, _majority(6))
+	fun box _majority(full: USize): USize =>
+		full.shr(1) + 1
 
 class iso _TestArrayWithout is UnitTest
 	""" Tests removal of an element from an array. """
@@ -68,7 +81,7 @@ class iso _TestConvertToLeader is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]]()
+		let net = Network[RaftSignal[DummyCommand]](netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate-convert") // expecting RequestVote in the mock following this
 		h.expect_action("got-vote-request")
@@ -103,8 +116,8 @@ class iso _TestConvertToLeader is UnitTest
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
 			, [as NetworkAddress: receiver_candidate_id; peer_one_id; peer_two_id], consume mon)
-		let peer_one = HeartbeatOnVoteMockRaftServer(h, net, peer_one_id)
-		let peer_two = HeartbeatOnVoteMockRaftServer(h, net, peer_two_id)
+		let peer_one = GrantVoteMockRaftServer(h, net, peer_one_id)
+		let peer_two = GrantVoteMockRaftServer(h, net, peer_two_id)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(peer_one)
 		h.dispose_when_done(peer_two)
@@ -128,6 +141,10 @@ actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 	be apply(signal: RaftSignal[DummyCommand]) =>
 		match consume signal
 		| let s: VoteRequest =>
+			_h.env.out.print("got vote request in peer: " + _id.string()
+					+ " for term: " + s.term.string()
+					+ " from candidate: " + s.candidate_id.string()
+				)
 			_h.complete_action("got-vote-request")
 
 			// reply and grant vote
@@ -170,7 +187,7 @@ class iso _TestConvertToFollower is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]]()
+		let net = Network[RaftSignal[DummyCommand]](netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate") // expecting RequestVote in the mock
 		h.expect_action("got-vote-request")
