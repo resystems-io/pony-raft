@@ -53,6 +53,19 @@ class VolatileServerState
 		commit_index = 0
 		last_applied = 0
 
+class VolatileCandidateState
+	"""
+	Record the number of votes received during an election round.
+	"""
+
+	var votes: U16
+
+	new create() =>
+		votes = 0
+
+	fun ref vote() =>
+		votes = votes + 1
+
 class VolatileLeaderState
 	"""
 	Recorded in memory in the leader, and reinitialised after an election.

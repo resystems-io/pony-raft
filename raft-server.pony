@@ -129,9 +129,9 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	let persistent: PersistentServerState[T]	// holds the log
 	let volatile: VolatileServerState
-	var leader: (VolatileLeaderState | None)
 
-	var _votes: U16
+	var candidate: VolatileCandidateState
+	var leader: (VolatileLeaderState | None)
 
 	var _mode: RaftMode
 	var _mode_timer: Timer tag
@@ -159,12 +159,15 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// copy peers but remove self
 		_peers = try ArrayWithout[NetworkAddress].without(id, peers)? else [as NetworkAddress: id] end
 
-		// set up basic internal state and the state machine
+		// record the initial state machine
 		_machine = consume machine
+
+		// set up basic internal state
 		persistent = PersistentServerState[T]
 		volatile = VolatileServerState
+		candidate = VolatileCandidateState
 		leader = None
-		_votes = 0
+
 		_lastKnownLeader = 0
 		_mode = Follower
 		_mode_timer = Timer(object iso is TimerNotify end, 1, 1)
@@ -207,7 +210,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		match timeout
 		| (let t: ElectionTimeout) => _start_candidate()
 		| (let t: CanvasTimeout) => _start_election()
-		| (let t: HeartbeatTimeout) => None // FIXME
+		| (let t: HeartbeatTimeout) => _emit_heartbeat()
 		end
 
 	// -- internals
@@ -311,6 +314,9 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// -- -- consensus module
 
+	fun ref _emit_heartbeat() =>
+		None // FIXME
+
 	fun box _peer_up_to_date(peer_last_log_term: RaftTerm, peer_last_log_index: RaftIndex): Bool =>
 		"""
 		Determine if the peer log is more up-to-date than this replica.
@@ -351,6 +357,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		The follower will honour heartbeats and log updates, but will also set a timer to potentially
 		start its own election.
 		"""
+		leader = None // clear any potential leader state
 		persistent.current_term = term
 		_set_mode(Follower)
 
@@ -365,6 +372,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// check that we are not already a candidate
 		if (_mode is Candidate) then return end
 
+		leader = None // clear any potential leader state (should have been cleared as a follower)
 		_set_mode(Candidate)
 
 		// start a new election
@@ -374,10 +382,11 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// only candidates can run elections
 		if (_mode isnt Candidate) then return end
 
-		// new term and vote for self
+		// new term, reinitialise the vote register and vote for self
 		persistent.current_term = persistent.current_term + 1
 		persistent.voted_for = _id
-		_votes = 1
+		candidate = VolatileCandidateState
+		candidate.vote()
 		// send vote requests to other replicas
 		for p in _peers.values() do
 			let canvas: VoteRequest iso = recover iso VoteRequest end
