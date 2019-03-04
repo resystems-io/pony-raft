@@ -23,7 +23,7 @@ actor RaftServerTests is TestList
 		test(_TestFailLowerTermAppend)
 		test(_TestConvertToLeader)
 		test(_TestConvertToFollower)
-		test(_TestWaitForHeartbeat)
+		test(_TestWaitForHeartbeats)
 
 class iso _TestMajority is UnitTest
 	""" Tests majority calculation. """
@@ -51,12 +51,55 @@ class iso _TestArrayWithout is UnitTest
 		h.assert_true(without.contains(5))
 		h.assert_false(without.contains(4))
 
-class iso _TestWaitForHeartbeat is UnitTest
+class iso _TestWaitForHeartbeats is UnitTest
 	""" Tests that a leader gets signal to publish heartbeats. """
-	new iso create() => None
-	fun name(): String => "raft:server:heartbeat"
+
+	// wait for a replica to become a candidate
+	// publish faux votes in favour of the candiate from a majority
+	// wait for the replica to become a leader
+	// wait for the leader to send out the first round of heartbeats
+	// wait for a second round of heartbeats
+
+	let _timers: Timers
+
+	new iso create() =>
+		_timers = Timers
+
+	fun name(): String => "raft:server:heartbeats"
+
 	fun ref apply(h: TestHelper) =>
-		h.fail("not yet implemented")
+		h.long_test(1_000_000_000)
+
+		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
+		let peer_one_id: NetworkAddress = 2 // observer validating the replies
+		let peer_two_id: NetworkAddress = 3 // another peer
+
+		// create a network
+		let netmon = EnvNetworkMonitor(h.env)
+		let net = Network[RaftSignal[DummyCommand]](netmon)
+		h.expect_action("got-follower-start")
+		h.expect_action("got-candidate-convert") // expecting RequestVote in the mock following this
+		h.expect_action("got-vote-request")
+		h.expect_action("got-leader-convert")
+		h.expect_action("got-heartbeat-one")
+		h.expect_action("got-heartbeat-two")
+
+		// set up a monitor that logs to _env.out
+		let mon: RaftServerMonitor iso = LeaderRaftServerMonitor(h)
+
+		// register components that need to be shut down
+		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
+			, [as NetworkAddress: receiver_candidate_id; peer_one_id; peer_two_id], consume mon)
+		let peer_one = GrantVoteMockRaftServer(h, net, peer_one_id)
+		let peer_two = GrantVoteMockRaftServer(h, net, peer_two_id)
+		h.dispose_when_done(replica)
+		h.dispose_when_done(peer_one)
+		h.dispose_when_done(peer_two)
+
+		// register network endpoints
+		net.register(receiver_candidate_id, replica)
+		net.register(peer_one_id, peer_one)
+		net.register(peer_two_id, peer_two)
 
 class iso _TestConvertToLeader is UnitTest
 	""" Tests that a candidate will convert to a leader if it gets enough votes. """
@@ -88,30 +131,7 @@ class iso _TestConvertToLeader is UnitTest
 		h.expect_action("got-leader-convert")
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
-				let _h: TestHelper = h
-				var _seen_follower: Bool = false
-				var _is_candidate: Bool = false
-				fun ref timeout_raised(timeout: RaftTimeout) => None
-				fun ref state_changed(mode: RaftMode, term: RaftTerm) =>
-					match mode
-					| Follower =>
-						_h.env.out.print("got state Follower for term " + term.string())
-						if _seen_follower and _is_candidate then
-							h.fail("should not convert back to a follower")
-						else
-							h.complete_action("got-follower-start")
-						end
-						_seen_follower = true
-					| Candidate =>
-						_h.env.out.print("got state Candidate for term " + term.string())
-						_is_candidate = true
-						_h.complete_action("got-candidate-convert")
-					| Leader =>
-						_h.env.out.print("got state Leader for term " + term.string())
-						_h.complete_action("got-leader-convert")
-					end
-			end
+		let mon: RaftServerMonitor iso = LeaderRaftServerMonitor(h)
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
@@ -127,16 +147,50 @@ class iso _TestConvertToLeader is UnitTest
 		net.register(peer_one_id, peer_one)
 		net.register(peer_two_id, peer_two)
 
+class iso LeaderRaftServerMonitor is RaftServerMonitor
+
+	let _h: TestHelper
+	var _seen_follower: Bool
+	var _is_candidate: Bool
+
+	new iso create(h: TestHelper) =>
+		_h = h
+		_seen_follower = false
+		_is_candidate = false
+
+	fun ref timeout_raised(timeout: RaftTimeout) => None
+
+	fun ref state_changed(mode: RaftMode, term: RaftTerm) =>
+		match mode
+		| Follower =>
+			_h.env.out.print("got state Follower for term " + term.string())
+			if _seen_follower and _is_candidate then
+				_h.fail("should not convert back to a follower")
+			else
+				_h.complete_action("got-follower-start")
+			end
+			_seen_follower = true
+		| Candidate =>
+			_h.env.out.print("got state Candidate for term " + term.string())
+			_is_candidate = true
+			_h.complete_action("got-candidate-convert")
+		| Leader =>
+			_h.env.out.print("got state Leader for term " + term.string())
+			_h.complete_action("got-leader-convert")
+		end
+
 actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
 	let _net: Network[RaftSignal[DummyCommand]]
 	let _id: NetworkAddress
+	var _seen_append: U16
 
 	new create(h: TestHelper, net: Network[RaftSignal[DummyCommand]], faux_peer_id: NetworkAddress) =>
 		_h = h
 		_net = net
 		_id = faux_peer_id
+		_seen_append = 0
 
 	be apply(signal: RaftSignal[DummyCommand]) =>
 		match consume signal
@@ -152,6 +206,13 @@ actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 			vote.term = 0 // choose a low term so that the vote is accepted by the candidate
 			vote.vote_granted = true
 			_net.send(s.candidate_id, consume vote)
+		| let s: AppendEntriesRequest[DummyCommand] =>
+			_seen_append = _seen_append + 1
+			match _seen_append
+			| 1 => _h.complete_action("got-heartbeat-one")
+			| 2 => _h.complete_action("got-heartbeat-two")
+			| 3 => _h.complete_action("got-heartbeat-three")
+			end
 		end
 
 class iso _TestConvertToFollower is UnitTest

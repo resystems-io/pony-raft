@@ -426,12 +426,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	fun ref _start_leader() =>
 		leader = VolatileLeaderState
 		_set_mode(Leader)
-		// cancel any previous timers
-		_timers.cancel(_mode_timer)
 
 		// set up timer to send out for append-entries heart beat
 		let mt: Timer iso = Timer(_Timeout(this, HeartbeatTimeout), 0, _hearbeat_timeout)
 		_set_timer(consume mt)
+
+		// send initial empty append entry hearbeats
+		// TODO
 
 	fun ref _set_timer(mt: Timer iso) =>
 		_timers.cancel(_mode_timer) // cancel any previous timers before recording a new one
