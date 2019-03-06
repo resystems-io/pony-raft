@@ -331,7 +331,18 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	// -- -- consensus module
 
 	fun ref _emit_heartbeat() =>
-		None // FIXME
+		// here we simply emit empty append entry logs
+		for p in _peers.values() do
+			let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T] end
+			append.term = persistent.current_term
+			append.prev_log_index = 0 // FIXME
+			append.prev_log_term = 0 // FIXME
+			append.leader_commit = volatile.commit_index
+			append.leader_id = _id
+			// append.entries.clear() // FIXME
+
+			_network.send(p, consume append)
+		end
 
 	fun box _peer_up_to_date(peer_last_log_term: RaftTerm, peer_last_log_index: RaftIndex): Bool =>
 		"""
@@ -430,9 +441,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// set up timer to send out for append-entries heart beat
 		let mt: Timer iso = Timer(_Timeout(this, HeartbeatTimeout), 0, _hearbeat_timeout)
 		_set_timer(consume mt)
-
-		// send initial empty append entry hearbeats
-		// TODO
 
 	fun ref _set_timer(mt: Timer iso) =>
 		_timers.cancel(_mode_timer) // cancel any previous timers before recording a new one
