@@ -339,7 +339,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			append.prev_log_term = 0 // FIXME
 			append.leader_commit = volatile.commit_index
 			append.leader_id = _id
-			// append.entries.clear() // FIXME
+			append.entries.clear() // Note, entries is `iso`
 
 			_network.send(p, consume append)
 		end
