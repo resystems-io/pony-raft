@@ -282,7 +282,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
 		_monitor.append_req(_id)
-		// decide if we should actually just become a follower
+		// decide if we should actually just become a follower (and bow to a new leader)
 		let convert_to_follower: Bool = if
 			((_mode is Candidate) and (appendreq.term >= persistent.current_term)) then
 				// candidate saw a new leader in the same term
@@ -293,7 +293,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			else
 				false
 			end
-
 		if convert_to_follower then
 			// convert to a follower and continue to process othe signal
 			_start_follower(appendreq.term)
@@ -307,10 +306,32 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			_network.send(appendreq.leader_id, consume reply)
 			return
 		end
-		// if accepted, the perform mode changes (we might be behind and should bow to a new leader)
+
+		// check if we should reply false if log _doesn't_ contain an entry at .prev_log_index
+		// whose term matches .prev_log_term
 		// TODO
+
+		// if an existing etnry conflicts with a new one (same index but different terms),
+		// delete the existing etnry and all that follow it
+		// TODO
+
+		// append any new entries not already in the log
+		// TODO
+
+		// if .leader_commit > commit_index,
+		// set commit_index = min(.leader_commit, index of last new entry)
+		if (appendreq.leader_commit > volatile.commit_index) then
+			// TODO review calculation of 'last_new_one'
+			let last_new_one: USize = appendreq.prev_log_index + appendreq.entries.size()
+			volatile.commit_index = appendreq.leader_commit.min(last_new_one)
+		end
+
+		// respond 'true' to the leader
+		// TODO
+
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
 		// TODO
+
 		// if accepted, then actually append and process the log agains the state machine
 		// TODO
 
@@ -332,6 +353,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	fun ref _emit_heartbeat() =>
 		// here we simply emit empty append entry logs
+		// (we could actually maintain timers per peercw
+		// and squash hearbeats if non-trival appends are sent)
 		for p in _peers.values() do
 			let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T] end
 			append.term = persistent.current_term
