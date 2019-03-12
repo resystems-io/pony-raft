@@ -11,5 +11,10 @@ pipeline {
                 archiveArtifacts artifacts: 'pony-raft', fingerprint: true 
             }
         }
+        stage('Test') {
+            steps {
+		sh './pony-raft' 
+            }
+        }
     }
 }
