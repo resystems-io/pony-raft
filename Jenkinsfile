@@ -7,7 +7,7 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-		sh 'ponyc' 
+		sh 'ponyc -b pony-raft' 
                 archiveArtifacts artifacts: 'pony-raft', fingerprint: true 
             }
         }
