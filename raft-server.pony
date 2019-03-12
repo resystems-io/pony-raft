@@ -91,6 +91,7 @@ interface iso RaftServerMonitor
 	// -- follow internal state changes and timeouts
 	fun ref timeout_raised(timeout: RaftTimeout) => None
 	fun ref state_changed(mode: RaftMode, term: RaftTerm) => None
+	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm, success: Bool) => None
 
 class iso NopRaftServerMonitor is RaftServerMonitor
 
@@ -300,10 +301,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		// decide if this request should be honoured (we might be ahead in a new term)
 		if (appendreq.term < persistent.current_term) then
-			let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
-			reply.success = false
-			reply.term = persistent.current_term
-			_network.send(appendreq.leader_id, consume reply)
+			_emit_append_res(appendreq.leader_id, persistent.current_term, false)
 			return
 		end
 
@@ -334,6 +332,15 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		// if accepted, then actually append and process the log agains the state machine
 		// TODO
+
+	fun ref _emit_append_res(leader_id: NetworkAddress, term: RaftTerm, success: Bool) =>
+		// notify the leader
+		let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
+		reply.term = persistent.current_term
+		reply.success = false
+		_network.send(leader_id, consume reply)
+		// notify the monitor
+		_monitor.append_accepted(leader_id, term, success)
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
 		_monitor.append_res(_id)
