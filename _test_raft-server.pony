@@ -24,7 +24,7 @@ actor RaftServerTests is TestList
 		test(_TestConvertToLeader)
 		test(_TestConvertToFollower)
 		test(_TestWaitForHeartbeats)
-		test(_TestAppendRejectNoPrev)
+//		test(_TestAppendRejectNoPrev)
 
 class iso _TestMajority is UnitTest
 	""" Tests majority calculation. """
