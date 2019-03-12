@@ -99,36 +99,71 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		let net = Network[RaftSignal[DummyCommand]](netmon)
 
 		// set up a monitor to wait for state changes and to trigger the mock leader
-		let mock_leader: _AppendRejectNoPrevMockLeader = _AppendRejectNoPrevMockLeader(
-													net, peer_one_id, receiver_candidate_id)
+		let mock_leader: _AppendRejectNoPrevMockLeader = _AppendRejectNoPrevMockLeader(h
+													, net, peer_one_id, receiver_candidate_id)
 		let mon: RaftServerMonitor iso = FollowerAppendMonitor(h, mock_leader)
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
 			, [as NetworkAddress: receiver_candidate_id; peer_one_id ], consume mon)
-		let peer_one = GrantVoteMockRaftServer(h, net, peer_one_id)
 		h.dispose_when_done(replica)
-		h.dispose_when_done(peer_one)
+		h.dispose_when_done(mock_leader)
 
 		// register network endpoints
 		net.register(receiver_candidate_id, replica)
-		net.register(peer_one_id, peer_one)
+		net.register(peer_one_id, mock_leader)
 
-actor _AppendRejectNoPrevMockLeader
+actor _AppendRejectNoPrevMockLeader is RaftEndpoint[DummyCommand]
 
+	let _h: TestHelper
 	let _net: Network[RaftSignal[DummyCommand]]
 	let _leader_id: NetworkAddress
 	let _follower_id: NetworkAddress
 
-	new create(net: Network[RaftSignal[DummyCommand]]
+	new create(h: TestHelper
+		, net: Network[RaftSignal[DummyCommand]]
 		, leader_id: NetworkAddress, follower_id: NetworkAddress) =>
+		_h = h
 		_net = net
 		_leader_id = leader_id
 		_follower_id = follower_id
 
-	be lead_one() => None
-	be lead_two() => None
-	be lead_three() => None
+	be apply(signal: RaftSignal[DummyCommand]) => None
+		match consume signal
+		| let s: VoteRequest =>
+			_h.env.out.print("got vote request in mock leader: " + _leader_id.string()
+					+ " for term: " + s.term.string()
+					+ " from candidate: " + s.candidate_id.string()
+				)
+			_h.fail("mock leader should not get a vote request")
+		| let s: AppendEntriesRequest[DummyCommand] =>
+			_h.fail("mock leader should not get a vote append requests")
+		end
+
+	be lead_one() =>
+		// start by assuming that the follower has nothing, hence (prev_log_index, prev_log_term) = (0,0)
+		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.term = 1
+		append.prev_log_index = 0
+		append.prev_log_term = 0
+		append.leader_commit = 0
+		append.leader_id = _leader_id
+
+		// add a single command to the partial log
+		append.entries.clear()
+		let cmd: DummyCommand = DummyCommand
+		let l: Log[DummyCommand] iso = recover iso Log[DummyCommand](cmd) end
+		append.entries.push(consume l)
+
+		// send the log
+		_net.send(_follower_id, consume append)
+
+
+	be lead_two() =>
+		None
+
+	be lead_three() =>
+		None
 
 class iso FollowerAppendMonitor is RaftServerMonitor
 
@@ -154,13 +189,15 @@ class iso FollowerAppendMonitor is RaftServerMonitor
 		| Follower =>
 			_h.env.out.print("got state Follower for term " + term.string())
 			_h.complete_action("got-follower-start")
+			if (not _seen_follower) then
+				_h.env.out.print("triggering mock lead one")
+				_mock_leader.lead_one()
+			end
 			_seen_follower = true
-			_h.env.out.print("triggering mock lead one")
-			_mock_leader.lead_one()
 		| Candidate =>
-			_h.fail("should not become a candidate")
+			_h.fail("follower should not become a candidate")
 		| Leader =>
-			_h.fail("should not become a leader")
+			_h.fail("follower should not become a leader")
 		end
 
 	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm, success: Bool) =>
