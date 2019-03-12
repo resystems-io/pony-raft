@@ -24,6 +24,7 @@ actor RaftServerTests is TestList
 		test(_TestConvertToLeader)
 		test(_TestConvertToFollower)
 		test(_TestWaitForHeartbeats)
+		test(_TestAppendRejectNoPrev)
 
 class iso _TestMajority is UnitTest
 	""" Tests majority calculation. """
@@ -50,6 +51,72 @@ class iso _TestArrayWithout is UnitTest
 		h.assert_true(without.contains(3))
 		h.assert_true(without.contains(5))
 		h.assert_false(without.contains(4))
+
+class iso _TestAppendRejectNoPrev is UnitTest
+	""" Tests that an append is rejected if there is no match for the 'prev' log entry. """
+
+	// create a replica and drive it into follower state
+	// now mock up appends from a leader so as to add logs to the replica
+	// then try to append entries that do not match on 'prev' log index and term
+	// check that this last append triggers a rejection
+
+	let _timers: Timers
+
+	new iso create() =>
+		_timers = Timers
+
+	fun name(): String => "raft:server:append-no-prev"
+
+	fun ref apply(h: TestHelper) =>
+		h.long_test(1_000_000_000)
+		h.expect_action("got-follower-start")
+		h.expect_action("got-append-success-one")
+		h.expect_action("got-append-success-two")
+		h.expect_action("got-append-failure-three")
+
+		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
+		let peer_one_id: NetworkAddress = 2 // observer validating the replies
+
+		// create a network
+		let netmon = EnvNetworkMonitor(h.env)
+		let net = Network[RaftSignal[DummyCommand]](netmon)
+
+		// set up a monitor to wait for state changes
+		let mon: RaftServerMonitor iso = FollowerAppendMonitor(h)
+
+		// register components that need to be shut down
+		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
+			, [as NetworkAddress: receiver_candidate_id; peer_one_id ], consume mon)
+		let peer_one = GrantVoteMockRaftServer(h, net, peer_one_id)
+		h.dispose_when_done(replica)
+		h.dispose_when_done(peer_one)
+
+		// register network endpoints
+		net.register(receiver_candidate_id, replica)
+		net.register(peer_one_id, peer_one)
+
+class iso FollowerAppendMonitor is RaftServerMonitor
+
+	let _h: TestHelper
+	var _seen_follower: Bool
+
+	new iso create(h: TestHelper) =>
+		_h = h
+		_seen_follower = false
+
+	fun ref timeout_raised(timeout: RaftTimeout) => None
+
+	fun ref state_changed(mode: RaftMode, term: RaftTerm) =>
+		match mode
+		| Follower =>
+			_h.env.out.print("got state Follower for term " + term.string())
+			_h.complete_action("got-follower-start")
+			_seen_follower = true
+		| Candidate =>
+				_h.fail("should not become a candidate")
+		| Leader =>
+				_h.fail("should not become a leader")
+		end
 
 class iso _TestWaitForHeartbeats is UnitTest
 	""" Tests that a leader gets signal to publish heartbeats. """
