@@ -26,6 +26,23 @@ actor RaftServerTests is TestList
 		test(_TestWaitForHeartbeats)
 		test(_TestAppendRejectNoPrev)
 
+primitive Digits
+	fun val number(n: U16): String =>
+		match n
+		| 0 => "zero"
+		| 1 => "one"
+		| 2 => "two"
+		| 3 => "three"
+		| 4 => "four"
+		| 5 => "five"
+		| 6 => "six"
+		| 7 => "seven"
+		| 8 => "eight"
+		| 9 => "nine"
+		else
+			"."
+		end
+
 class iso _TestMajority is UnitTest
 	""" Tests majority calculation. """
 	new iso create() => None
@@ -81,8 +98,10 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		let netmon = EnvNetworkMonitor(h.env)
 		let net = Network[RaftSignal[DummyCommand]](netmon)
 
-		// set up a monitor to wait for state changes
-		let mon: RaftServerMonitor iso = FollowerAppendMonitor(h)
+		// set up a monitor to wait for state changes and to trigger the mock leader
+		let mock_leader: _AppendRejectNoPrevMockLeader = _AppendRejectNoPrevMockLeader(
+													net, peer_one_id, receiver_candidate_id)
+		let mon: RaftServerMonitor iso = FollowerAppendMonitor(h, mock_leader)
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
@@ -95,16 +114,40 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		net.register(receiver_candidate_id, replica)
 		net.register(peer_one_id, peer_one)
 
+actor _AppendRejectNoPrevMockLeader
+
+	let _net: Network[RaftSignal[DummyCommand]]
+	let _leader_id: NetworkAddress
+	let _follower_id: NetworkAddress
+
+	new create(net: Network[RaftSignal[DummyCommand]]
+		, leader_id: NetworkAddress, follower_id: NetworkAddress) =>
+		_net = net
+		_leader_id = leader_id
+		_follower_id = follower_id
+
+	be lead_one() => None
+	be lead_two() => None
+	be lead_three() => None
+
 class iso FollowerAppendMonitor is RaftServerMonitor
 
+	"""
+	Waits for the replica to become a follower.
+	Then starts the mock leader, which will append entries.
+	Waits to check that the appends succeed.
+	"""
+
 	let _h: TestHelper
+	let _mock_leader: _AppendRejectNoPrevMockLeader
 	var _seen_follower: Bool
+	var _count_append: U16
 
-	new iso create(h: TestHelper) =>
+	new iso create(h: TestHelper, mock_leader: _AppendRejectNoPrevMockLeader) =>
 		_h = h
+		_mock_leader = mock_leader
 		_seen_follower = false
-
-	fun ref timeout_raised(timeout: RaftTimeout) => None
+		_count_append = 0
 
 	fun ref state_changed(mode: RaftMode, term: RaftTerm) =>
 		match mode
@@ -112,11 +155,31 @@ class iso FollowerAppendMonitor is RaftServerMonitor
 			_h.env.out.print("got state Follower for term " + term.string())
 			_h.complete_action("got-follower-start")
 			_seen_follower = true
+			_h.env.out.print("triggering mock lead one")
+			_mock_leader.lead_one()
 		| Candidate =>
-				_h.fail("should not become a candidate")
+			_h.fail("should not become a candidate")
 		| Leader =>
-				_h.fail("should not become a leader")
+			_h.fail("should not become a leader")
 		end
+
+	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm, success: Bool) =>
+		_count_append = _count_append + 1
+		let pass: String = if success then "success" else "failure" end
+		let num: String val = Digits.number(_count_append)
+		let token: String = "got-" + pass + "-" + num
+
+		match (_count_append, success)
+		| (1, true) =>
+			_h.env.out.print("triggering mock lead two")
+			_mock_leader.lead_two()
+		| (2, true) =>
+			_h.env.out.print("triggering mock lead three")
+			_mock_leader.lead_three()
+		end
+
+		_h.complete_action(token)
+
 
 class iso _TestWaitForHeartbeats is UnitTest
 	""" Tests that a leader gets signal to publish heartbeats. """
