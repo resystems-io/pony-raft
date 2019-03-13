@@ -135,7 +135,7 @@ class val AppendEntriesRequest[T: Any val]
 	// Log entries
 	// (Note, iso field as per: Viewpoint adaptation)
 	// (https://tutorial.ponylang.io/reference-capabilities/combining-capabilities.html)
-	embed entries: Array[Log[T]] iso
+	embed entries: Array[Log[T] val] iso
 
 	new create() =>
 		term = 0
@@ -143,7 +143,7 @@ class val AppendEntriesRequest[T: Any val]
 		prev_log_term = 0
 		leader_commit = 0
 		leader_id = 0
-		entries = recover iso Array[Log[T]](0) end
+		entries = recover iso Array[Log[T] val](0) end
 
 	fun val signal_term(): RaftTerm =>
 		term

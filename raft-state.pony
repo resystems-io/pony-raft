@@ -9,9 +9,9 @@ class Log[T]
 	var term: RaftTerm
 	var command: T
 
-	new create(t: T) =>
+	new create(cmd: T) =>
 		term = 0
-		command = consume t
+		command = consume cmd
 
 class PersistentServerState[T]
 	"""
@@ -29,12 +29,12 @@ class PersistentServerState[T]
 	// The log entries. Each entry contains a command for the the
 	// state machine, and the term when the entry was received by
 	// the leader. (the first index is 1).
-	embed log: Array[Log[T]]
+	embed log: Array[Log[T] val]
 
 	new create() =>
 		current_term = 0
 		voted_for = None
-		log = Array[Log[T]](0)
+		log = Array[Log[T] val](0)
 
 class VolatileServerState
 	"""

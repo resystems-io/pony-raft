@@ -309,12 +309,19 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// whose term matches .prev_log_term
 		// TODO
 
-		// if an existing etnry conflicts with a new one (same index but different terms),
-		// delete the existing etnry and all that follow it
+		// if an existing entry conflicts with a new one (same index but different terms),
+		// delete the existing entry and all that follow it
 		// TODO
 
 		// append any new entries not already in the log
-		// TODO
+		// (these may be committed or uncomitted i.e. we may get ahead of the commit index)
+		// (at this point there should be no conflicting entries, so we can just append)
+		// (we compute the overlap relative to the shared 'prev_log_index')
+		let remaining_len: USize = 0 // FIXME
+		let append_src_idx: USize = 0 // FIXME
+		let log_dst_idx: USize = 0 // FIXME
+		let delta: USize = persistent.log.size() - appendreq.prev_log_index
+		appendreq.entries.copy_to(persistent.log, append_src_idx, log_dst_idx, remaining_len)
 
 		// if .leader_commit > commit_index,
 		// set commit_index = min(.leader_commit, index of last new entry)
@@ -330,7 +337,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
 		// TODO
 
-		// if accepted, then actually append and process the log agains the state machine
+		// if accepted, then actually append and process the log against the state machine
 		// TODO
 
 	fun ref _emit_append_res(leader_id: NetworkAddress, term: RaftTerm, success: Bool) =>
