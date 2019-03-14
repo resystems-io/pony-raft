@@ -154,14 +154,29 @@ actor _AppendRejectNoPrevMockLeader is RaftEndpoint[DummyCommand]
 		// add a single command to the partial log
 		append.entries.clear()
 		let cmd: DummyCommand = DummyCommand
-		let l: Log[DummyCommand] iso = recover iso Log[DummyCommand](cmd) end
+		let l: Log[DummyCommand] iso = recover iso Log[DummyCommand](1, cmd) end
 		append.entries.push(consume l)
 
 		// send the log
 		_net.send(_follower_id, consume append)
 
 	be lead_two() =>
-		None
+		// start by assuming that the follower has nothing, hence (prev_log_index, prev_log_term) = (0,0)
+		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.term = 1
+		append.prev_log_index = 1
+		append.prev_log_term = 1
+		append.leader_commit = 0
+		append.leader_id = _leader_id
+
+		// add a single command to the partial log
+		append.entries.clear()
+		let cmd: DummyCommand = DummyCommand
+		let l: Log[DummyCommand] iso = recover iso Log[DummyCommand](1, cmd) end
+		append.entries.push(consume l)
+
+		// send the log
+		_net.send(_follower_id, consume append)
 
 	be lead_three() =>
 		None

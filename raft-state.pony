@@ -6,11 +6,11 @@ class Log[T]
 	received by the leader.
 	"""
 
-	var term: RaftTerm
-	var command: T
+	let term: RaftTerm
+	let command: T
 
-	new create(cmd: T) =>
-		term = 0
+	new create(t: RaftTerm, cmd: T) =>
+		term = t
 		command = consume cmd
 
 class PersistentServerState[T]

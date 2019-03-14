@@ -333,6 +333,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		end
 
 		// respond 'true' to the leader
+		// (FIXME since we are processing asynchronously we need a correlation ID)
+		// (might be able to use the follower ID and log index values?)
 		_emit_append_res(appendreq.leader_id, persistent.current_term, true)
 
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
