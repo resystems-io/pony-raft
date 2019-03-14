@@ -138,6 +138,8 @@ actor _AppendRejectNoPrevMockLeader is RaftEndpoint[DummyCommand]
 			_h.fail("mock leader should not get a vote request")
 		| let s: AppendEntriesRequest[DummyCommand] =>
 			_h.fail("mock leader should not get a vote append requests")
+		| let s: AppendEntriesResult =>
+			_h.env.out.print("got append result in mock leader: " + _leader_id.string())
 		end
 
 	be lead_one() =>
@@ -157,7 +159,6 @@ actor _AppendRejectNoPrevMockLeader is RaftEndpoint[DummyCommand]
 
 		// send the log
 		_net.send(_follower_id, consume append)
-
 
 	be lead_two() =>
 		None
@@ -201,10 +202,12 @@ class iso FollowerAppendMonitor is RaftServerMonitor
 		end
 
 	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm, success: Bool) =>
+		_h.env.out.print("got append accept: " + success.string()
+											+ " term: " + term.string() + " leader: " + leader_id.string())
 		_count_append = _count_append + 1
 		let pass: String = if success then "success" else "failure" end
 		let num: String val = Digits.number(_count_append)
-		let token: String = "got-" + pass + "-" + num
+		let token: String = "got-append-" + pass + "-" + num
 
 		match (_count_append, success)
 		| (1, true) =>

@@ -294,6 +294,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			else
 				false
 			end
+
 		if convert_to_follower then
 			// convert to a follower and continue to process othe signal
 			_start_follower(appendreq.term)
@@ -332,10 +333,14 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		end
 
 		// respond 'true' to the leader
-		// TODO
+		_emit_append_res(appendreq.leader_id, persistent.current_term, true)
 
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
-		// TODO
+		if not convert_to_follower then
+			// no need to do this if we already converted to a follower (since that resets the timers)
+			// but now we still want to reset the timers
+			_start_follower_timer()
+		end
 
 		// if accepted, then actually append and process the log against the state machine
 		// TODO
@@ -424,7 +429,9 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		leader = None // clear any potential leader state
 		persistent.current_term = term
 		_set_mode(Follower)
+		_start_follower_timer()
 
+	fun ref _start_follower_timer() =>
 		// randomise the timeout between [150,300) ms
 		let swash = _swash(_lower_election_timeout, _upper_election_timeout)
 
