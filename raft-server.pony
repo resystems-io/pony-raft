@@ -152,6 +152,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		, timers: Timers
 		, network: RaftNetwork[T]
 		, peers: Array[NetworkAddress] val
+		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor iso = NopRaftServerMonitor
 		, initial_term: RaftTerm = 0 // really just for testing
 		) =>
@@ -174,6 +175,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		// set up basic internal state
 		persistent = PersistentServerState[T]
+		persistent.log.push(recover val Log[T](0,start_command) end)
 		volatile = VolatileServerState
 		candidate = VolatileCandidateState
 		leader = None
@@ -308,11 +310,22 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		// check if we should reply false if log _doesn't_ contain an entry at .prev_log_index
 		// whose term matches .prev_log_term
-		// TODO
+		(let has_prev_index: Bool, let has_prev_term: Bool) = try
+				let t: Log[T] val = persistent.log(appendreq.prev_log_index)?
+				(true, t.term == appendreq.prev_log_term) // true or false here
+			else
+				(false, false)
+			end
+
 
 		// if an existing entry conflicts with a new one (same index but different terms),
 		// delete the existing entry and all that follow it
 		// TODO
+
+		if not has_prev_term then
+			_emit_append_res(appendreq.leader_id, persistent.current_term, false)
+			return
+		end
 
 		// append any new entries not already in the log
 		// (these may be committed or uncomitted i.e. we may get ahead of the commit index)

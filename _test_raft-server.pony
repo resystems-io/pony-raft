@@ -105,7 +105,8 @@ class iso _TestAppendRejectNoPrev is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; peer_one_id ], consume mon)
+			, [as NetworkAddress: receiver_candidate_id; peer_one_id ], DummyCommand.start()
+			where monitor = consume mon)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock_leader)
 
@@ -161,7 +162,7 @@ actor _AppendRejectNoPrevMockLeader is RaftEndpoint[DummyCommand]
 		_net.send(_follower_id, consume append)
 
 	be lead_two() =>
-		// start by assuming that the follower has nothing, hence (prev_log_index, prev_log_term) = (0,0)
+		// continue with a valid update e.g. (prev_log_index, prev_log_term) = (1,1)
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
 		append.term = 1
 		append.prev_log_index = 1
@@ -179,7 +180,23 @@ actor _AppendRejectNoPrevMockLeader is RaftEndpoint[DummyCommand]
 		_net.send(_follower_id, consume append)
 
 	be lead_three() =>
-		None
+		// now publish an out of sequence log entry e.g. (prev_log_index, prev_log_term) = (2,3)
+		// (here the index should match but the term will be out of sync and larger)
+		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.term = 4
+		append.prev_log_index = 2
+		append.prev_log_term = 3
+		append.leader_commit = 0
+		append.leader_id = _leader_id
+
+		// add a single command to the partial log
+		append.entries.clear()
+		let cmd: DummyCommand = DummyCommand
+		let l: Log[DummyCommand] iso = recover iso Log[DummyCommand](1, cmd) end
+		append.entries.push(consume l)
+
+		// send the log
+		_net.send(_follower_id, consume append)
 
 class iso FollowerAppendMonitor is RaftServerMonitor
 
@@ -274,7 +291,8 @@ class iso _TestWaitForHeartbeats is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; peer_one_id; peer_two_id], consume mon)
+			, [as NetworkAddress: receiver_candidate_id; peer_one_id; peer_two_id], DummyCommand.start()
+			where monitor = consume mon)
 		let peer_one = GrantVoteMockRaftServer(h, net, peer_one_id)
 		let peer_two = GrantVoteMockRaftServer(h, net, peer_two_id)
 		h.dispose_when_done(replica)
@@ -320,7 +338,8 @@ class iso _TestConvertToLeader is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; peer_one_id; peer_two_id], consume mon)
+			, [as NetworkAddress: receiver_candidate_id; peer_one_id; peer_two_id], DummyCommand.start()
+			where monitor = consume mon)
 		let peer_one = GrantVoteMockRaftServer(h, net, peer_one_id)
 		let peer_two = GrantVoteMockRaftServer(h, net, peer_two_id)
 		h.dispose_when_done(replica)
@@ -464,7 +483,8 @@ class iso _TestConvertToFollower is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], consume mon)
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], DummyCommand.start()
+			where monitor = consume mon)
 		let mock = HeartbeatOnVoteMockRaftServer(h, net, listener_candidate_id)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)
@@ -530,7 +550,7 @@ class iso _TestFailLowerTermAppend is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_follower_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_follower_id; listener_leader_id]
+			, [as NetworkAddress: receiver_follower_id; listener_leader_id], DummyCommand.start()
 			where initial_term = follower_term)
 		let mock = ExpectFailAppend(h, sent_term)
 		h.dispose_when_done(replica)
@@ -618,7 +638,8 @@ class iso _TestWaitForCanvas is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], consume mon)
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], DummyCommand.start()
+			where monitor = consume mon)
 		let mock = ExpectCanvasMockRaftServer(h)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)
@@ -673,7 +694,8 @@ class iso _TestConvertToCandidate is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], consume mon)
+			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id], DummyCommand.start()
+			where monitor = consume mon)
 		let mock = ExpectCanvasMockRaftServer(h)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)
@@ -755,7 +777,8 @@ class iso _TestRequestVote is UnitTest
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress:
-				receiver_candidate_id; listener_candidate_id;3], consume mon)
+				receiver_candidate_id; listener_candidate_id;3], DummyCommand.start()
+				where monitor = consume mon)
 		let mock = ExpectVoteMockRaftServer(h)
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock)
@@ -775,6 +798,8 @@ class iso _TestRequestVote is UnitTest
 		net.send(receiver_candidate_id, consume canvas)
 
 primitive DummyCommand
+	fun val start(): DummyCommand =>
+		DummyCommand
 
 class iso DummyMachine is StateMachine[DummyCommand]
 	fun ref accept(command: DummyCommand) => None

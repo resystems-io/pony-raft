@@ -17,14 +17,17 @@ actor RaftTests is TestList
 	fun tag tests(test: PonyTest) =>
 		test(_TestPingPong)
 
-
 class val Ping
 	""" Sent by the client to fetch a new counter from the server. """
 
 	let expect: U64
-	let pinger: Pinger
+	let pinger: PingerValidator
 
-	new iso create(_expect: U64, _pinger: Pinger) =>
+	new iso start() =>
+		expect = 0
+		pinger = NopPingerValidator
+
+	new iso create(_expect: U64, _pinger: PingerValidator) =>
 		expect = _expect
 		pinger = _pinger
 
@@ -39,6 +42,12 @@ class val Pong
 		counter = _counter
 
 type PingCommand is Ping
+
+interface tag PingerValidator
+	""" Pinger interface. """
+	be validate(pong: Pong val) => None
+
+actor NopPingerValidator is PingerValidator
 
 actor Pinger
 	""" Ping client. """
@@ -139,9 +148,9 @@ class iso _TestPingPong is UnitTest
 
 	fun ref set_up(h: TestHelper) =>
 		// create the individual server replicas
-		_r1 = RaftServer[PingCommand](1, Ponger(h.env), _timers, _net, [as U16: 1;2;3] )
-		_r2 = RaftServer[PingCommand](2, Ponger(h.env), _timers, _net, [as U16: 1;2;3] )
-		_r3 = RaftServer[PingCommand](3, Ponger(h.env), _timers, _net, [as U16: 1;2;3] )
+		_r1 = RaftServer[PingCommand](1, Ponger(h.env), _timers, _net, [as U16: 1;2;3], Ping.start() )
+		_r2 = RaftServer[PingCommand](2, Ponger(h.env), _timers, _net, [as U16: 1;2;3], Ping.start() )
+		_r3 = RaftServer[PingCommand](3, Ponger(h.env), _timers, _net, [as U16: 1;2;3], Ping.start() )
 
 	fun ref tear_down(h: TestHelper) =>
 		// make sure to stop the servers
