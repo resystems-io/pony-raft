@@ -317,9 +317,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 				(false, false)
 			end
 
-
 		// if an existing entry conflicts with a new one (same index but different terms),
-		// delete the existing entry and all that follow it
+		// delete the existing entry and all that follow it (§5.3).
 		// TODO
 
 		if not has_prev_term then
