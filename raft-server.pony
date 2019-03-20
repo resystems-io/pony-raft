@@ -330,11 +330,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// (these may be committed or uncomitted i.e. we may get ahead of the commit index)
 		// (at this point there should be no conflicting entries, so we can just append)
 		// (we compute the overlap relative to the shared 'prev_log_index')
-		let remaining_len: USize = 0 // FIXME
-		let append_src_idx: USize = 0 // FIXME
-		let log_dst_idx: USize = 0 // FIXME
-		let delta: USize = persistent.log.size() - appendreq.prev_log_index
-		appendreq.entries.copy_to(persistent.log, append_src_idx, log_dst_idx, remaining_len)
+		// (note persistent log size is ≥ 1 since we start with one element)
+		let overlap = persistent.log.size() - appendreq.prev_log_index - 1 // always >= 0
+		// check that there will be anything to append
+		if (overlap < appendreq.entries.size()) then
+			let remaining = appendreq.entries.size() - overlap
+			appendreq.entries.copy_to(persistent.log, overlap, persistent.log.size(), remaining)
+		end
 
 		// if .leader_commit > commit_index,
 		// set commit_index = min(.leader_commit, index of last new entry)
