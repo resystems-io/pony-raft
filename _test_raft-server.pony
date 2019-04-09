@@ -25,6 +25,7 @@ actor RaftServerTests is TestList
 		test(_TestConvertToFollower)
 		test(_TestWaitForHeartbeats)
 		test(_TestAppendRejectNoPrev)
+		test(_TestAppendDropConflictingLogEntries)
 
 primitive Digits
 	fun val number(n: U16): String =>
@@ -68,6 +69,13 @@ class iso _TestArrayWithout is UnitTest
 		h.assert_true(without.contains(3))
 		h.assert_true(without.contains(5))
 		h.assert_false(without.contains(4))
+
+class iso _TestAppendDropConflictingLogEntries is UnitTest
+	""" Tests that followers drop conflicinting log entries. """
+	new iso create() => None
+	fun name(): String => "raft:server:append-drop-conflict"
+	fun ref apply(h: TestHelper) =>
+		h.fail("not yet implemented")
 
 class iso _TestAppendRejectNoPrev is UnitTest
 	""" Tests that an append is rejected if there is no match for the 'prev' log entry. """
