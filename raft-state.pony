@@ -74,11 +74,18 @@ class VolatileLeaderState
 	"""
 
 	// For each server, this is the index of the next log entry to be sent
-	// to that server (initialised to leader last log index + 1)
+	// to that server (initialised to leader last log index + 1).
+	// (each time the append fails for a given peer this is decremented
+	//  until common ground is found between the leader and peer).
 	var next_index: Array[RaftIndex]
 
 	// For each server, this is the index of the highest log entry known to
-	// replicated on that server (initialised to 0, increases monotonically)
+	// replicated on that server (initialised to 0, increases monotonically).
+	// (each time a peer acknowledges an append match index for that peer
+	//  is updated so that the leader can check for a majority of log updates
+	//  across its followers and update its commit index. The commit index
+	//  then drives applying updates to the state machine in all replicas —
+	//  only the leader responds to the client.)
 	var match_index: Array[RaftIndex]
 
 	new create() =>

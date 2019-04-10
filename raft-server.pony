@@ -283,6 +283,32 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
   // -- -- apending
 
+	/*
+	 * See §5.3 Log Replication
+	 *
+	 * "To bring a follower’s log into consistency with its own,
+	 * the leader must find the latest log entry where the two
+	 * logs agree, delete any entries in the follower’s log after
+	 * that point, and send the follower all of the leader’s entries
+	 * after that point. All of these actions happen in response
+	 * to the consistency check performed by AppendEntries
+	 * RPCs. The leader maintains a nextIndex for each follower,
+	 * which is the index of the next log entry the leader will
+	 * send to that follower. When a leader first comes to power,
+	 * it initializes all nextIndex values to the index just after the
+	 * last one in its log (11 in Figure 7). If a follower’s log is
+	 * inconsistent with the leader’s, the AppendEntries consistency
+	 * check will fail in the next AppendEntries RPC. After a
+	 * rejection, the leader decrements nextIndex and retries
+	 * the AppendEntries RPC. Eventually nextIndex will reach
+	 * a point where the leader and follower logs match. When
+	 * this happens, AppendEntries will succeed, which removes
+	 * any conflicting entries in the follower’s log and appends
+	 * entries from the leader’s log (if any). Once AppendEntries
+	 * succeeds, the follower’s log is consistent with the leader’s,
+	 * and it will remain that way for the rest of the term."
+	 */
+
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
 		_monitor.append_req(_id)
 		// decide if we should actually just become a follower (and bow to a new leader)
@@ -358,8 +384,16 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			_start_follower_timer()
 		end
 
-		// if accepted, then actually append and process the log against the state machine
+		// now update the state machine if need be
+		_apply_logs_to_state_machine()
+
+	fun ref _apply_logs_to_state_machine() =>
+		"""
+		Update the state machine by applying logs from after 'last_applied' up to and including
+		'commit_index'. However, only the leader can reply to the client.
+		"""
 		// TODO
+		None
 
 	fun ref _emit_append_res(leader_id: NetworkAddress, term: RaftTerm, success: Bool) =>
 		// notify the leader
@@ -388,12 +422,12 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	fun ref _emit_heartbeat() =>
 		// here we simply emit empty append entry logs
-		// (we could actually maintain timers per peercw
+		// (we could actually maintain timers per peer
 		// and squash hearbeats if non-trival appends are sent)
 		for p in _peers.values() do
 			let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T] end
 			append.term = persistent.current_term
-			append.prev_log_index = 0 // FIXME
+			append.prev_log_index = 0 // FIXME needs to be tracked per peer
 			append.prev_log_term = 0 // FIXME
 			append.leader_commit = volatile.commit_index
 			append.leader_id = _id
