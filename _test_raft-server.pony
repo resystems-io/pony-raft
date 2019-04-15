@@ -78,7 +78,7 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 	// now use a mock leader to send conflicting entries (overlapping index but different terms)
 	// check that the follower:
 	//   - drops the conflicting entries (need a feedback channel for this), and
-	//   - accepts the new log entries.
+	//   - accepts the new log entries (responds true to append).
 
 	new iso create() => None
 	fun name(): String => "raft:server:append-drop-conflict"

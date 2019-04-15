@@ -330,7 +330,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		// decide if this request should be honoured (we might be ahead in a new term)
 		if (appendreq.term < persistent.current_term) then
-			_emit_append_res(appendreq.leader_id, persistent.current_term, false)
+			_emit_append_res(appendreq.leader_id, false)
 			return
 		end
 
@@ -348,7 +348,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// TODO
 
 		if not has_prev_term then
-			_emit_append_res(appendreq.leader_id, persistent.current_term, false)
+			_emit_append_res(appendreq.leader_id, false)
 			return
 		end
 
@@ -375,7 +375,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// respond 'true' to the leader
 		// (FIXME since we are processing asynchronously we need a correlation ID)
 		// (might be able to use the follower ID and log index values?)
-		_emit_append_res(appendreq.leader_id, persistent.current_term, true)
+		_emit_append_res(appendreq.leader_id, true)
 
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
 		if not convert_to_follower then
@@ -395,14 +395,15 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// TODO
 		None
 
-	fun ref _emit_append_res(leader_id: NetworkAddress, term: RaftTerm, success: Bool) =>
+	fun ref _emit_append_res(leader_id: NetworkAddress, success: Bool) =>
 		// notify the leader
 		let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
 		reply.term = persistent.current_term
-		reply.success = false
-		_network.send(leader_id, consume reply)
+		reply.success = success
+		let msg: AppendEntriesResult val = consume reply
+		_network.send(leader_id, msg)
 		// notify the monitor
-		_monitor.append_accepted(leader_id, term, success)
+		_monitor.append_accepted(leader_id, msg.term, msg.success)
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
 		_monitor.append_res(_id)
