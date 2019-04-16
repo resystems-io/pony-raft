@@ -90,8 +90,8 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 		h.expect_action("got-follower-start")
-		h.expect_action("got-append-success-one")	// 1122233 (term = 3, last = 7)
-		h.expect_action("got-append-success-two")	// 112244 (term = 4, last = 6)
+		h.expect_action("got-append-success-one-3:7")	// 1122233 (term = 3, last = 7)
+		h.expect_action("got-append-success-two-4:6")	// 112244 (term = 4, last = 6)
 
 		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
 		let peer_one_id: NetworkAddress = 2 // observer validating the replies
@@ -155,7 +155,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 	be lead_one() =>
 		// start by assuming that the follower has nothing, hence (prev_log_index, prev_log_term) = (0,0)
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
-		append.term = 1
+		append.term = 3
 		append.prev_log_index = 0
 		append.prev_log_term = 0
 		append.leader_commit = 0
@@ -178,7 +178,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 	be lead_two() =>
 		// continue with an overlapping e.g. (prev_log_index, prev_log_term) = (4,2) to change to log terms 11244
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
-		append.term = 1
+		append.term = 4
 		append.prev_log_index = 4
 		append.prev_log_term = 2
 		append.leader_commit = 0
@@ -212,9 +212,9 @@ class iso _TestAppendRejectNoPrev is UnitTest
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 		h.expect_action("got-follower-start")
-		h.expect_action("got-append-success-one")
-		h.expect_action("got-append-success-two")
-		h.expect_action("got-append-failure-three")
+		h.expect_action("got-append-success-one-1:1")
+		h.expect_action("got-append-success-two-1:2")
+		h.expect_action("got-append-failure-three-4:2")
 
 		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
 		let peer_one_id: NetworkAddress = 2 // observer validating the replies
@@ -368,15 +368,18 @@ class iso FollowerAppendMonitor is RaftServerMonitor
 		_count_append = _count_append + 1
 		let pass: String = if success then "success" else "failure" end
 		let num: String val = Digits.number(_count_append)
-		let token: String = "got-append-" + pass + "-" + num
+		let token: String = "got-append-" + pass + "-" + num + "-"
+													+ term.string() + ":" + last_index.string()
 
 		match (_count_append, success)
 		| (1, true) =>
-			_h.env.out.print("triggering mock lead two")
+			_h.env.out.print("triggering mock lead two: " + token)
 			_mock_leader.lead_two()
 		| (2, true) =>
-			_h.env.out.print("triggering mock lead three")
+			_h.env.out.print("triggering mock lead three: " + token)
 			_mock_leader.lead_three()
+		else
+			_h.env.out.print("no action after: " + token)
 		end
 
 		_h.complete_action(token)
