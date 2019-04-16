@@ -345,14 +345,18 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 				(false, false)
 			end
 
-		// if an existing entry conflicts with a new one (same index but different terms),
-		// delete the existing entry and all that follow it (§5.3).
-		// TODO
-
 		if not has_prev_term then
 			_emit_append_res(appendreq.leader_id, false)
 			return
 		end
+
+		// if an existing entry conflicts with a new one (same index but different terms),
+		// delete the existing entry and all that follow it (§5.3). Note we can assume that
+		// conflicts can not happen bellow the current commit index.
+		// TODO find the first conflicting entry and truncate the log
+		// TODO do this by starting from prev_log_index and moving to the end of either the log and append enries
+		// TODO use 'while do' or 'repeat until'
+
 
 		// append any new entries not already in the log
 		// (these may be committed or uncomitted i.e. we may get ahead of the commit index)
