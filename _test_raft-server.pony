@@ -80,10 +80,25 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 	//   - drops the conflicting entries (need a feedback channel for this), and
 	//   - accepts the new log entries (responds true to append).
 
-	new iso create() => None
+	let _timers: Timers
+
+	new iso create() =>
+		_timers = Timers
+
 	fun name(): String => "raft:server:append-drop-conflict"
+
 	fun ref apply(h: TestHelper) =>
-		h.fail("not yet implemented")
+		h.long_test(1_000_000_000)
+		h.expect_action("got-follower-start")
+		h.expect_action("got-append-success-high")	// 1122233 (term = 3, last = 7)
+		h.expect_action("got-append-success-lower")	// 112244 (term = 4, last = 6)
+
+		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
+		let peer_one_id: NetworkAddress = 2 // observer validating the replies
+
+		// create a network
+		let netmon = EnvNetworkMonitor(h.env)
+		let net = Network[RaftSignal[DummyCommand]](netmon)
 
 class iso _TestAppendRejectNoPrev is UnitTest
 	""" Tests that an append is rejected if there is no match for the 'prev' log entry. """
@@ -249,9 +264,13 @@ class iso FollowerAppendMonitor is RaftServerMonitor
 			_h.fail("follower should not become a leader")
 		end
 
-	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm, success: Bool) =>
+	fun ref append_accepted(leader_id: NetworkAddress
+				, term: RaftTerm, last_index: RaftIndex, success: Bool) =>
 		_h.env.out.print("got append accept: " + success.string()
-											+ " term: " + term.string() + " leader: " + leader_id.string())
+											+ " term: " + term.string()
+											+ " last_index: " + last_index.string()
+											+ " leader: " + leader_id.string()
+											)
 		_count_append = _count_append + 1
 		let pass: String = if success then "success" else "failure" end
 		let num: String val = Digits.number(_count_append)

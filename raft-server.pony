@@ -91,7 +91,9 @@ interface iso RaftServerMonitor
 	// -- follow internal state changes and timeouts
 	fun ref timeout_raised(timeout: RaftTimeout) => None
 	fun ref state_changed(mode: RaftMode, term: RaftTerm) => None
-	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm, success: Bool) => None
+	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm , last_index: RaftIndex, success: Bool) =>
+		"""last_index: the highest index seen by the replica, but not necessarily applied or committed. """
+		None
 
 class iso NopRaftServerMonitor is RaftServerMonitor
 
@@ -193,7 +195,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
 
-		// if any RPC has a larger 'term' then convert to and continue as a follower
+		// if any RPC has a larger 'term' then convert to and continue as a follower (§5.1)
 		match signal
 		| (let ht: HasTerm) =>
 			if persistent.current_term < ht.signal_term() then
@@ -403,7 +405,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		let msg: AppendEntriesResult val = consume reply
 		_network.send(leader_id, msg)
 		// notify the monitor
-		_monitor.append_accepted(leader_id, msg.term, msg.success)
+		_monitor.append_accepted(leader_id, msg.term, persistent.log.size()-1, msg.success)
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
 		_monitor.append_res(_id)
