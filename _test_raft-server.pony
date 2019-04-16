@@ -90,8 +90,8 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 		h.expect_action("got-follower-start")
-		h.expect_action("got-append-success-high")	// 1122233 (term = 3, last = 7)
-		h.expect_action("got-append-success-lower")	// 112244 (term = 4, last = 6)
+		h.expect_action("got-append-success-one")	// 1122233 (term = 3, last = 7)
+		h.expect_action("got-append-success-two")	// 112244 (term = 4, last = 6)
 
 		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
 		let peer_one_id: NetworkAddress = 2 // observer validating the replies
@@ -99,6 +99,100 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
 		let net = Network[RaftSignal[DummyCommand]](netmon)
+
+		// set up a monitor to wait for state changes and to trigger the mock leader
+		let mock_leader: _AppendAndOverwriteMockLeader = _AppendAndOverwriteMockLeader(h
+													, net, peer_one_id, receiver_candidate_id)
+		let mon: RaftServerMonitor iso = FollowerAppendMonitor(h, mock_leader)
+
+		// register components that need to be shut down
+		let replica = RaftServer[DummyCommand](receiver_candidate_id, DummyMachine, _timers, net
+			, [as NetworkAddress: receiver_candidate_id; peer_one_id ], DummyCommand.start()
+			where monitor = consume mon)
+		h.dispose_when_done(replica)
+		h.dispose_when_done(mock_leader)
+
+		// register network endpoints
+		net.register(receiver_candidate_id, replica)
+		net.register(peer_one_id, mock_leader)
+
+interface tag _AppendMockLeader is RaftEndpoint[DummyCommand]
+
+	be apply(signal: RaftSignal[DummyCommand]) => None
+	be lead_one() => None
+	be lead_two() => None
+	be lead_three() => None
+
+actor _AppendAndOverwriteMockLeader is _AppendMockLeader
+
+	let _h: TestHelper
+	let _net: Network[RaftSignal[DummyCommand]]
+	let _leader_id: NetworkAddress
+	let _follower_id: NetworkAddress
+
+	new create(h: TestHelper
+		, net: Network[RaftSignal[DummyCommand]]
+		, leader_id: NetworkAddress, follower_id: NetworkAddress) =>
+		_h = h
+		_net = net
+		_leader_id = leader_id
+		_follower_id = follower_id
+
+	be apply(signal: RaftSignal[DummyCommand]) => None
+		match consume signal
+		| let s: VoteRequest =>
+			_h.env.out.print("got vote request in mock leader: " + _leader_id.string()
+					+ " for term: " + s.term.string()
+					+ " from candidate: " + s.candidate_id.string()
+				)
+			_h.fail("mock leader should not get a vote request")
+		| let s: AppendEntriesRequest[DummyCommand] =>
+			_h.fail("mock leader should not get a vote append requests")
+		| let s: AppendEntriesResult =>
+			_h.env.out.print("got append result in mock leader: " + _leader_id.string())
+		end
+
+	be lead_one() =>
+		// start by assuming that the follower has nothing, hence (prev_log_index, prev_log_term) = (0,0)
+		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.term = 1
+		append.prev_log_index = 0
+		append.prev_log_term = 0
+		append.leader_commit = 0
+		append.leader_id = _leader_id
+
+		// add commands with log terms 1122233
+		append.entries.clear()
+		let cmd: DummyCommand = DummyCommand
+		append.entries.push(recover iso Log[DummyCommand](1, cmd) end)
+		append.entries.push(recover iso Log[DummyCommand](1, cmd) end)
+		append.entries.push(recover iso Log[DummyCommand](2, cmd) end)
+		append.entries.push(recover iso Log[DummyCommand](2, cmd) end)
+		append.entries.push(recover iso Log[DummyCommand](2, cmd) end)
+		append.entries.push(recover iso Log[DummyCommand](3, cmd) end)
+		append.entries.push(recover iso Log[DummyCommand](3, cmd) end)
+
+		// send the log
+		_net.send(_follower_id, consume append)
+
+	be lead_two() =>
+		// continue with an overlapping e.g. (prev_log_index, prev_log_term) = (4,2) to change to log terms 11244
+		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.term = 1
+		append.prev_log_index = 4
+		append.prev_log_term = 2
+		append.leader_commit = 0
+		append.leader_id = _leader_id
+
+		// add a logs to overwrite with the resultant terms 11244 (i.e. less log entries)
+		append.entries.clear()
+		let cmd: DummyCommand = DummyCommand
+		append.entries.push(recover iso Log[DummyCommand](2, cmd) end)
+		append.entries.push(recover iso Log[DummyCommand](4, cmd) end)
+		append.entries.push(recover iso Log[DummyCommand](4, cmd) end)
+
+		// send the log
+		_net.send(_follower_id, consume append)
 
 class iso _TestAppendRejectNoPrev is UnitTest
 	""" Tests that an append is rejected if there is no match for the 'prev' log entry. """
@@ -145,7 +239,7 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		net.register(receiver_candidate_id, replica)
 		net.register(peer_one_id, mock_leader)
 
-actor _AppendRejectNoPrevMockLeader is RaftEndpoint[DummyCommand]
+actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 
 	let _h: TestHelper
 	let _net: Network[RaftSignal[DummyCommand]]
@@ -238,11 +332,11 @@ class iso FollowerAppendMonitor is RaftServerMonitor
 	"""
 
 	let _h: TestHelper
-	let _mock_leader: _AppendRejectNoPrevMockLeader
+	let _mock_leader: _AppendMockLeader
 	var _seen_follower: Bool
 	var _count_append: U16
 
-	new iso create(h: TestHelper, mock_leader: _AppendRejectNoPrevMockLeader) =>
+	new iso create(h: TestHelper, mock_leader: _AppendMockLeader) =>
 		_h = h
 		_mock_leader = mock_leader
 		_seen_follower = false
