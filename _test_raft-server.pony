@@ -179,7 +179,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 		// continue with an overlapping e.g. (prev_log_index, prev_log_term) = (4,2) to change to log terms 11244
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
 		append.term = 4
-		append.prev_log_index = 4
+		append.prev_log_index = 3
 		append.prev_log_term = 2
 		append.leader_commit = 0
 		append.leader_id = _leader_id

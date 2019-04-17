@@ -350,15 +350,30 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			return
 		end
 
-		// if an existing entry conflicts with a new one (same index but different terms),
-		// delete the existing entry and all that follow it (§5.3). Note we can assume that
-		// conflicts can not happen bellow the current commit index.
-		// TODO find the first conflicting entry and truncate the log
-		// TODO do this by starting from prev_log_index and moving to the end of either the log and append enries
-		// TODO use 'while do' or 'repeat until'
+		// If an existing entry conflicts with a new one (same index but different terms),
+		// delete the existing entry and all that follow it (§5.3).
+		// (Note we can assume that conflicts can not happen bellow the current commit index.)
+		// (Note, we've already checked that there is no "conflict" at `prev_log_index`)
+		var idx: RaftIndex = appendreq.prev_log_index + 1
+		var log_end: RaftIndex = persistent.log.size()
+		let append_len: USize = appendreq.entries.size()
+		let append_end: RaftIndex = idx + append_len
+		try
+			while (idx < append_end) and (idx < log_end) do
+					let off: RaftIndex = idx - append_len - 1
+					let al: Log[T] val = appendreq.entries(off)?
+					let rl: Log[T] val = persistent.log(idx)?
+					if (al.term == rl.term) then
+						idx = idx + 1
+					else
+						// conflict detected drop the remainder from the follower's log
+						persistent.log.truncate(idx)
+						break
+					end
+			end
+		end
 
-
-		// append any new entries not already in the log
+		// Append any new entries not already in the log.
 		// (these may be committed or uncomitted i.e. we may get ahead of the commit index)
 		// (at this point there should be no conflicting entries, so we can just append)
 		// (we compute the overlap relative to the shared 'prev_log_index')
