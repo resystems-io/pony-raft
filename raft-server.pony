@@ -232,14 +232,16 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	// -- -- client command
 
 	fun ref _process_command(command: CommandEnvelope[T]) =>
+		""" Accept a new command from a client. """
 		_monitor.command_req(_id)
 		let c: CommandEnvelope[T] = consume command
 		let cmd: T val = c.command
-		""" Accept a new command from a client. """
+		let source: NetworkAddress val = c.source
 		match _mode
-		| Follower	=> _accept_follower(consume cmd)
-		| Candidate	=> _accept_candidate(consume cmd)
-		| Leader		=> _accept_leader(consume cmd)
+			// TODO review - maybe just send the envelope rather than the parts
+		| Follower	=> _accept_follower(consume source, consume cmd)
+		| Candidate	=> _accept_candidate(consume source, consume cmd)
+		| Leader		=> _accept_leader(consume source, consume cmd)
 		end
 
 	// -- -- votes
@@ -394,7 +396,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		end
 
 		// respond 'true' to the leader
-		// (FIXME since we are processing asynchronously we need a correlation ID)
+		// (FIXME since we are processing asynchronously we need a correlation ID or more state)
 		// (might be able to use the follower ID and log index values?)
 		_emit_append_res(appendreq.leader_id, true)
 
@@ -573,22 +575,25 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// -- command ingress
 
-	fun ref _accept_follower(command: T) =>
+	fun ref _accept_follower(source: NetworkAddress, command: T) =>
 		// follower  - redirect command to the leader
 		//             (leader will reply, leader may provide backpressure)
+		// TODO
 		None
 
-	fun ref _accept_candidate(command: T) =>
+	fun ref _accept_candidate(source: NetworkAddress, command: T) =>
 		// candidate - queue the command until transitioning to being a leader or follower
 		//             (honour ttl and generate dropped message signals)
 		//             (send backpressure if the queue gets too large)
 		//             (batch queued message to the leader)
+		// TODO
 		None
 
-	fun ref _accept_leader(command: T) =>
+	fun ref _accept_leader(source: NetworkAddress, command: T) =>
 		// leader    - apply commands to the journal log and distribute them to followers
 		//             (may generate backpressure if the nextIndex vs matchedIndex vs log
 		//              starts to get too large)
+		// TODO
 		None
 
 class _Timeout is TimerNotify
