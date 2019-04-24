@@ -234,14 +234,10 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	fun ref _process_command(command: CommandEnvelope[T]) =>
 		""" Accept a new command from a client. """
 		_monitor.command_req(_id)
-		let c: CommandEnvelope[T] = consume command
-		let cmd: T val = c.command
-		let source: NetworkAddress val = c.source
 		match _mode
-			// TODO review - maybe just send the envelope rather than the parts
-		| Follower	=> _accept_follower(consume source, consume cmd)
-		| Candidate	=> _accept_candidate(consume source, consume cmd)
-		| Leader		=> _accept_leader(consume source, consume cmd)
+		| Follower	=> _accept_follower(consume command)
+		| Candidate	=> _accept_candidate(consume command)
+		| Leader		=> _accept_leader(consume command)
 		end
 
 	// -- -- votes
@@ -575,13 +571,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// -- command ingress
 
-	fun ref _accept_follower(source: NetworkAddress, command: T) =>
+	fun ref _accept_follower(command: CommandEnvelope[T]) =>
 		// follower  - redirect command to the leader
 		//             (leader will reply, leader may provide backpressure)
 		// TODO
 		None
 
-	fun ref _accept_candidate(source: NetworkAddress, command: T) =>
+	fun ref _accept_candidate(command: CommandEnvelope[T]) =>
 		// candidate - queue the command until transitioning to being a leader or follower
 		//             (honour ttl and generate dropped message signals)
 		//             (send backpressure if the queue gets too large)
@@ -589,11 +585,14 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// TODO
 		None
 
-	fun ref _accept_leader(source: NetworkAddress, command: T) =>
+	fun ref _accept_leader(command: CommandEnvelope[T]) =>
 		// leader    - apply commands to the journal log and distribute them to followers
 		//             (may generate backpressure if the nextIndex vs matchedIndex vs log
 		//              starts to get too large)
 		// TODO
+		let c: CommandEnvelope[T] = consume command
+		let cmd: T val = c.command
+		let source: NetworkAddress val = c.source
 		None
 
 class _Timeout is TimerNotify
