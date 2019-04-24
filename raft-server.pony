@@ -215,7 +215,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		| let s: InstallSnapshotRequest => _process_install_snapshot_request(consume s)
 		| let s: InstallSnapshotResponse => _process_install_snapshot_response(consume s)
 		else
-			None
+			None // Not responding to ResponseEnvelope (see FIXME regarding limiting to RaftServerSignal)
 		end
 
 	be raise(timeout: RaftTimeout) =>
