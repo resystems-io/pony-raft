@@ -193,7 +193,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_timers.cancel(_mode_timer)
 
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
+		match signal
+		| (let s: RaftServerSignal[T]) => absorb(s)
+		else
+			None // ignore non-server signals
+		end
 
+	fun ref absorb(signal: RaftServerSignal[T]) =>
 		// if any RPC has a larger 'term' then convert to and continue as a follower (§5.1)
 		match signal
 		| (let ht: HasTerm) =>
@@ -213,8 +219,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		| let s: AppendEntriesResult => _process_append_entries_result(consume s)
 		| let s: InstallSnapshotRequest => _process_install_snapshot_request(consume s)
 		| let s: InstallSnapshotResponse => _process_install_snapshot_response(consume s)
-		else
-			None // Not responding to ResponseEnvelope (see FIXME regarding limiting to RaftServerSignal)
 		end
 
 	be raise(timeout: RaftTimeout) =>
@@ -410,7 +414,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		Update the state machine by applying logs from after 'last_applied' up to and including
 		'commit_index'. However, only the leader can reply to the client.
 		"""
-		// TODO
+		// TODO _machine.accept(...)
 		None
 
 	fun ref _emit_append_res(leader_id: NetworkAddress, success: Bool) =>
@@ -608,7 +612,7 @@ class _Timeout is TimerNotify
 		_raisable.raise(_signal)
 		true
 
-primitive ArrayWithout[T: NetworkAddress] // Equatable[T] #read]
+primitive ArrayWithout[T: Equatable[T val] val]
 
 	fun val without(t: T, v: Array[T] val): Array[T] ? =>
 		let w: Array[T] iso = recover iso Array[T](v.size() - 1) end

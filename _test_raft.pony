@@ -98,7 +98,13 @@ actor Pinger
 		go()
 
 class iso Ponger is StateMachine[PingCommand]
-	""" Ping/Pong server state machine. """
+	"""
+	Ping/Pong server state machine.
+
+	The Pong state machine will absorb log entries once
+	they are ready to be applied, thereby updating the
+	server state.
+	"""
 
 	let _env: Env
 
