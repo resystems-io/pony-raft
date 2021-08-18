@@ -50,7 +50,11 @@ interface tag PingerValidator
 actor NopPingerValidator is PingerValidator
 
 actor Pinger
-	""" Ping client. """
+	"""
+	Ping client.
+
+	This is a single client that then interacts with the Pong raft server.
+	"""
 
 	// This will send 'count' pings to the system, and check:
 	//  - every ping has a response
@@ -60,6 +64,7 @@ actor Pinger
 
 	let _replica: RaftEndpoint[PingCommand]
 	let _env: Env
+	let _address: NetworkAddress
 
 	var _run: Bool
 	var _expect: U64
@@ -67,6 +72,7 @@ actor Pinger
 	new create(replica: RaftEndpoint[PingCommand] tag, env: Env) =>
 		_replica = replica
 		_env = env
+		_address = 0
 		_run = true
 		_expect = 0
 
@@ -77,7 +83,7 @@ actor Pinger
 	be go() =>
 		if _run then
 			_env.out.print("Sending ping: " + _expect.string())
-			_replica(CommandEnvelope[PingCommand](Ping(_expect, this)))
+			_replica(CommandEnvelope[PingCommand](_address, Ping(_expect, this)))
 		end
 
 	be validate(pong: Pong val) =>
@@ -106,6 +112,8 @@ class iso Ponger is StateMachine[PingCommand]
 		_env.out.print("Ponger state machine received ping: " + command.expect.string())
 		_counter = _counter + 1
 		let pong: Pong = Pong(command.expect, _counter)
+		// send a pong back to the ping client
+		// FIXME the response to the client should go via the Network and not directly to the tag
 		command.pinger.validate(consume pong)
 
 class iso _TestPingPong is UnitTest
@@ -129,7 +137,7 @@ class iso _TestPingPong is UnitTest
 
 
 	let _timers: Timers
-	let _net: RaftNetwork[PingCommand]
+	let _net: Network[RaftSignal[PingCommand]]
 	var _r1: RaftEndpoint[PingCommand]
 	var _r2: RaftEndpoint[PingCommand]
 	var _r3: RaftEndpoint[PingCommand]
@@ -138,7 +146,7 @@ class iso _TestPingPong is UnitTest
 		_timers = Timers
 		// create a network for linking the servers
 		// FIXME the network need to be able to carry raft commands and not just client commands
-		_net = RaftNetwork[PingCommand]
+		_net = Network[RaftSignal[PingCommand]]
 		// create dummy servers
 		_r1 = NopRaftEndpoint[PingCommand]
 		_r2 = NopRaftEndpoint[PingCommand]

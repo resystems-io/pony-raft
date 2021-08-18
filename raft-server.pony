@@ -67,7 +67,6 @@ type RaftTimeout is (ElectionTimeout | HeartbeatTimeout | CanvasTimeout)
 
 // -- the transport
 
-type RaftNetwork[T: Any val] is Network[RaftSignal[T]]
 type RaftEndpoint[T: Any val] is Endpoint[RaftSignal[T]]
 
 actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
@@ -132,7 +131,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _rand: Random
 	let _monitor: RaftServerMonitor iso
 	let _timers: Timers
-	let _network: RaftNetwork[T]
+	let _network: Network[RaftSignal[T]]
 	let _id: NetworkAddress
 	let _majority: USize
 	let _peers: Array[NetworkAddress]
@@ -152,7 +151,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	new create(id: NetworkAddress, machine: StateMachine[T] iso
 		, timers: Timers
-		, network: RaftNetwork[T]
+		, network: Network[RaftSignal[T]]
 		, peers: Array[NetworkAddress] val
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor iso = NopRaftServerMonitor

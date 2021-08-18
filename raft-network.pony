@@ -9,9 +9,18 @@ interface tag Stoppable is DisposableActor
 	be dispose() => stop()
 
 interface tag Endpoint[T: Any #send] is Stoppable
+	"""
+	Logically and endpoing absorbes a message.
+
+	The implementation might then deleage the message to some
+	other element.
+	"""
 	be apply(msg: T) => None
 
 actor NopEndpoint[T: Any #send] is Endpoint[T]
+	"""
+	A dead-end endpoint that doesn't send a message.
+	"""
 	be apply(msg: T) => None
 	be stop() => None
 

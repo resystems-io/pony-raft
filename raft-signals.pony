@@ -7,7 +7,7 @@ type RaftSignalStandard is (
 )
 
 type RaftServerSignal[T: Any val] is (
-	  RaftSignalStandard
+	  RaftSignalStandard val
 	| AppendEntriesRequest[T] val
 	| CommandEnvelope[T] val
 )
@@ -17,7 +17,7 @@ type RaftClientSignal[T: Any val] is (
 )
 
 type RaftSignal[T: Any val] is (
-	  RaftServerSignal[T]
+	  RaftServerSignal[T] val
 	| RaftClientSignal[T] val
 )
 
@@ -36,9 +36,9 @@ class val CommandEnvelope[T: Any #send]
 	let source: NetworkAddress // ID of the sending client raft, to receive a response on the network
 	// TODO consider carrying the TTL
 
-	new val create(value: T) =>
+	new val create(address: NetworkAddress, value: T) =>
 		this.command = consume value
-		this.source = 0
+		this.source = address
 
 class val ResponseEnvelope[T: Any #send]
 	"""
