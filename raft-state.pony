@@ -1,6 +1,6 @@
 // -- state
 
-class Log[T]
+class val Log[T: Any #send]
 	"""
 	Log entries, holding the command along with the term when the entry was
 	received by the leader.
@@ -9,11 +9,11 @@ class Log[T]
 	let term: RaftTerm
 	let command: T
 
-	new create(t: RaftTerm, cmd: T) =>
+	new val create(t: RaftTerm, cmd: T) =>
 		term = t
 		command = consume cmd
 
-class PersistentServerState[T]
+class ref PersistentServerState[T: Any #send]
 	"""
 	Update on stable storage before responding to consensus module requests."
 	"""
@@ -53,7 +53,7 @@ class VolatileServerState
 		commit_index = 0
 		last_applied = 0
 
-class VolatileCandidateState
+class ref VolatileCandidateState
 	"""
 	Record the number of votes received during an election round.
 	"""
@@ -68,7 +68,7 @@ class VolatileCandidateState
 			votes = votes + 1
 		end
 
-class VolatileLeaderState
+class ref VolatileLeaderState
 	"""
 	Recorded in memory in the leader, and reinitialised after an election.
 	"""

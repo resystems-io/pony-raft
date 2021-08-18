@@ -164,13 +164,13 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 		// add commands with log terms 1122233
 		append.entries.clear()
 		let cmd: DummyCommand = DummyCommand
-		append.entries.push(recover iso Log[DummyCommand](1, cmd) end)
-		append.entries.push(recover iso Log[DummyCommand](1, cmd) end)
-		append.entries.push(recover iso Log[DummyCommand](2, cmd) end)
-		append.entries.push(recover iso Log[DummyCommand](2, cmd) end)
-		append.entries.push(recover iso Log[DummyCommand](2, cmd) end)
-		append.entries.push(recover iso Log[DummyCommand](3, cmd) end)
-		append.entries.push(recover iso Log[DummyCommand](3, cmd) end)
+		append.entries.push(Log[DummyCommand](1, cmd))
+		append.entries.push(Log[DummyCommand](1, cmd))
+		append.entries.push(Log[DummyCommand](2, cmd))
+		append.entries.push(Log[DummyCommand](2, cmd))
+		append.entries.push(Log[DummyCommand](2, cmd))
+		append.entries.push(Log[DummyCommand](3, cmd))
+		append.entries.push(Log[DummyCommand](3, cmd))
 
 		// send the log
 		_net.send(_follower_id, consume append)
@@ -187,9 +187,9 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 		// add a logs to overwrite with the resultant terms 11244 (i.e. less log entries)
 		append.entries.clear()
 		let cmd: DummyCommand = DummyCommand
-		append.entries.push(recover iso Log[DummyCommand](2, cmd) end)
-		append.entries.push(recover iso Log[DummyCommand](4, cmd) end)
-		append.entries.push(recover iso Log[DummyCommand](4, cmd) end)
+		append.entries.push(Log[DummyCommand](2, cmd))
+		append.entries.push(Log[DummyCommand](4, cmd))
+		append.entries.push(Log[DummyCommand](4, cmd))
 
 		// send the log
 		_net.send(_follower_id, consume append)
@@ -280,7 +280,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 		// add a single command to the partial log
 		append.entries.clear()
 		let cmd: DummyCommand = DummyCommand
-		let l: Log[DummyCommand] iso = recover iso Log[DummyCommand](1, cmd) end
+		let l: Log[DummyCommand] val = Log[DummyCommand](1, cmd)
 		append.entries.push(consume l)
 
 		// send the log
@@ -298,7 +298,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 		// add a single command to the partial log
 		append.entries.clear()
 		let cmd: DummyCommand = DummyCommand
-		let l: Log[DummyCommand] iso = recover iso Log[DummyCommand](1, cmd) end
+		let l: Log[DummyCommand] val = Log[DummyCommand](1, cmd)
 		append.entries.push(consume l)
 
 		// send the log
@@ -317,7 +317,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 		// add a single command to the partial log
 		append.entries.clear()
 		let cmd: DummyCommand = DummyCommand
-		let l: Log[DummyCommand] iso = recover iso Log[DummyCommand](1, cmd) end
+		let l: Log[DummyCommand] val = Log[DummyCommand](1, cmd)
 		append.entries.push(consume l)
 
 		// send the log
