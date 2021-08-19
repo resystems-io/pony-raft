@@ -21,17 +21,14 @@ class val Ping
 	""" Sent by the client to fetch a new counter from the server. """
 
 	let expect: U64
-	let pinger: PingerValidator
 	let pinger_address: NetworkAddress
 
 	new iso start() =>
 		expect = 0
-		pinger = NopPingerValidator
 		pinger_address = 0
 
-	new iso create(_expect: U64, _pinger_address:NetworkAddress, _pinger: PingerValidator) =>
+	new iso create(_expect: U64, _pinger_address:NetworkAddress) =>
 		expect = _expect
-		pinger = _pinger
 		pinger_address = _pinger_address
 
 class val Pong
@@ -45,12 +42,6 @@ class val Pong
 		counter = _counter
 
 type PingCommand is Ping
-
-interface tag PingerValidator
-	""" Pinger interface. """
-	be validate(pong: Pong val) => None
-
-actor NopPingerValidator is PingerValidator
 
 actor Pinger is Endpoint[Pong]
 	"""
@@ -72,10 +63,10 @@ actor Pinger is Endpoint[Pong]
 	var _run: Bool
 	var _expect: U64
 
-	new create(replica: RaftEndpoint[PingCommand] tag, env: Env) =>
+	new create(pinger_address: NetworkAddress, replica: RaftEndpoint[PingCommand] tag, env: Env) =>
 		_replica = replica
 		_env = env
-		_pinger_address = 0
+		_pinger_address = pinger_address
 		_run = true
 		_expect = 0
 
@@ -88,13 +79,13 @@ actor Pinger is Endpoint[Pong]
 			_env.out.print("Sending ping: " + _expect.string())
 			// FIXME send to the replica via a Network
 			// (not sure if this should be _raft_peer_network, _client_network or a third network?)
-			_replica(CommandEnvelope[PingCommand](Ping(_expect, _pinger_address, this)))
+			_replica(CommandEnvelope[PingCommand](Ping(_expect, _pinger_address)))
 		end
 
 	be apply(pong: Pong val) =>
-		validate(pong)
+		_validate(pong)
 
-	be validate(pong: Pong val) =>
+	fun ref _validate(pong: Pong val) =>
 		if pong.expect == pong.counter then
 			// yay, got the expected count
 			_env.out.print("Yay! " + pong.expect.string())
@@ -115,22 +106,21 @@ class iso Ponger is StateMachine[PingCommand]
 	"""
 
 	let _env: Env
-	let _client_network: None // FIXME set up a client network for ping and pong - rather use the Transport interface
+	let _client_network: Transport[Pong]
 
 	var _counter: U64
 
-	new iso create(env: Env) =>
+	new iso create(env: Env, client_transport: Transport[Pong]) =>
 		_env = env
-		_client_network = None
+		_client_network = client_transport
 		_counter = 0
 
 	fun ref accept(command: PingCommand) =>
 		_env.out.print("Ponger state machine received ping: " + command.expect.string())
 		_counter = _counter + 1
 		let pong: Pong = Pong(command.expect, _counter)
-		// send a pong back to the ping client
-		// FIXME the response to the client should go via the _client_network and not directly to the tag
-		command.pinger.validate(consume pong)
+		// send a pong back to the ping client via the client network
+		_client_network.send(command.pinger_address, consume pong)
 
 class iso _TestPingPong is UnitTest
 	"""Tests basic life-cycle. """
@@ -154,6 +144,7 @@ class iso _TestPingPong is UnitTest
 
 	let _timers: Timers
 	let _raft_peer_network: Network[RaftSignal[PingCommand]]
+	let _client_network: Network[Pong]
 	var _r1: RaftEndpoint[PingCommand]
 	var _r2: RaftEndpoint[PingCommand]
 	var _r3: RaftEndpoint[PingCommand]
@@ -161,8 +152,9 @@ class iso _TestPingPong is UnitTest
 	new iso create() =>
 		_timers = Timers
 		// create a network for linking the servers
-		// FIXME the network need to be able to carry raft commands and not just client commands
 		_raft_peer_network = Network[RaftSignal[PingCommand]]
+		// create a network for responding back to clients
+		_client_network = Network[Pong]
 		// create dummy servers
 		_r1 = NopRaftEndpoint[PingCommand]
 		_r2 = NopRaftEndpoint[PingCommand]
@@ -172,9 +164,9 @@ class iso _TestPingPong is UnitTest
 
 	fun ref set_up(h: TestHelper) =>
 		// create the individual server replicas
-		_r1 = RaftServer[PingCommand](1, Ponger(h.env), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
-		_r2 = RaftServer[PingCommand](2, Ponger(h.env), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
-		_r3 = RaftServer[PingCommand](3, Ponger(h.env), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
+		_r1 = RaftServer[PingCommand](1, Ponger(h.env, _client_network), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
+		_r2 = RaftServer[PingCommand](2, Ponger(h.env, _client_network), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
+		_r3 = RaftServer[PingCommand](3, Ponger(h.env, _client_network), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
 
 	fun ref tear_down(h: TestHelper) =>
 		// make sure to stop the servers
@@ -195,7 +187,9 @@ class iso _TestPingPong is UnitTest
 		// (this client happens to be talking to raft server 2)
 		// (in future we might have the client talk via the 'Raft' that selects a server)
 		// FIXME need to rather send commands via a Raft than directly to the RaftServer replica
-		let pinger: Pinger = Pinger(_r2, h.env)
+		let pinger_address: NetworkAddress = 5432
+		let pinger: Pinger = Pinger(pinger_address, _r2, h.env)
+		_client_network.register(pinger_address, pinger)
 
 		pinger.go()
 		pinger.stop()
