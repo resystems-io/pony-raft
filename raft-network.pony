@@ -39,9 +39,9 @@ interface tag Transport[T: Any #send]
 	"""
 	be unicast(id: NetworkAddress, msg: T) => None
 
-	be broadcast(id: NetworkAddress, msg: T) => None
+	be broadcast(msg: T) => None
 
-	be anycast(id: NetworkAddress, msg: T) => None
+	be anycast(msg: T) => None
 
 interface val NetworkMonitor
 	"""
