@@ -595,7 +595,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// TODO
 		let c: CommandEnvelope[T] = consume command
 		let cmd: T val = c.command
-		let source: NetworkAddress val = c.source
 		None
 
 class _Timeout is TimerNotify

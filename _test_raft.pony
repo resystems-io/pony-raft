@@ -22,14 +22,17 @@ class val Ping
 
 	let expect: U64
 	let pinger: PingerValidator
+	let pinger_address: NetworkAddress
 
 	new iso start() =>
 		expect = 0
 		pinger = NopPingerValidator
+		pinger_address = 0
 
-	new iso create(_expect: U64, _pinger: PingerValidator) =>
+	new iso create(_expect: U64, _pinger_address:NetworkAddress, _pinger: PingerValidator) =>
 		expect = _expect
 		pinger = _pinger
+		pinger_address = _pinger_address
 
 class val Pong
 	""" Sent by the server to along with a new counter. """
@@ -64,7 +67,7 @@ actor Pinger
 
 	let _replica: RaftEndpoint[PingCommand]
 	let _env: Env
-	let _address: NetworkAddress
+	let _pinger_address: NetworkAddress
 
 	var _run: Bool
 	var _expect: U64
@@ -72,7 +75,7 @@ actor Pinger
 	new create(replica: RaftEndpoint[PingCommand] tag, env: Env) =>
 		_replica = replica
 		_env = env
-		_address = 0
+		_pinger_address = 0
 		_run = true
 		_expect = 0
 
@@ -83,7 +86,9 @@ actor Pinger
 	be go() =>
 		if _run then
 			_env.out.print("Sending ping: " + _expect.string())
-			_replica(CommandEnvelope[PingCommand](_address, Ping(_expect, this)))
+			// FIXME send to the replica via a Network
+			// (not sure if this should be _raft_peer_network, _client_network or a third network?)
+			_replica(CommandEnvelope[PingCommand](Ping(_expect, _pinger_address, this)))
 		end
 
 	be validate(pong: Pong val) =>
@@ -107,11 +112,13 @@ class iso Ponger is StateMachine[PingCommand]
 	"""
 
 	let _env: Env
+	let _client_network: None // FIXME set up a client network for ping and pong
 
 	var _counter: U64
 
 	new iso create(env: Env) =>
 		_env = env
+		_client_network = None
 		_counter = 0
 
 	fun ref accept(command: PingCommand) =>
@@ -119,7 +126,7 @@ class iso Ponger is StateMachine[PingCommand]
 		_counter = _counter + 1
 		let pong: Pong = Pong(command.expect, _counter)
 		// send a pong back to the ping client
-		// FIXME the response to the client should go via the Network and not directly to the tag
+		// FIXME the response to the client should go via the _client_network and not directly to the tag
 		command.pinger.validate(consume pong)
 
 class iso _TestPingPong is UnitTest
@@ -143,7 +150,7 @@ class iso _TestPingPong is UnitTest
 
 
 	let _timers: Timers
-	let _net: Network[RaftSignal[PingCommand]]
+	let _raft_peer_network: Network[RaftSignal[PingCommand]]
 	var _r1: RaftEndpoint[PingCommand]
 	var _r2: RaftEndpoint[PingCommand]
 	var _r3: RaftEndpoint[PingCommand]
@@ -152,7 +159,7 @@ class iso _TestPingPong is UnitTest
 		_timers = Timers
 		// create a network for linking the servers
 		// FIXME the network need to be able to carry raft commands and not just client commands
-		_net = Network[RaftSignal[PingCommand]]
+		_raft_peer_network = Network[RaftSignal[PingCommand]]
 		// create dummy servers
 		_r1 = NopRaftEndpoint[PingCommand]
 		_r2 = NopRaftEndpoint[PingCommand]
@@ -162,9 +169,9 @@ class iso _TestPingPong is UnitTest
 
 	fun ref set_up(h: TestHelper) =>
 		// create the individual server replicas
-		_r1 = RaftServer[PingCommand](1, Ponger(h.env), _timers, _net, [as U16: 1;2;3], Ping.start() )
-		_r2 = RaftServer[PingCommand](2, Ponger(h.env), _timers, _net, [as U16: 1;2;3], Ping.start() )
-		_r3 = RaftServer[PingCommand](3, Ponger(h.env), _timers, _net, [as U16: 1;2;3], Ping.start() )
+		_r1 = RaftServer[PingCommand](1, Ponger(h.env), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
+		_r2 = RaftServer[PingCommand](2, Ponger(h.env), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
+		_r3 = RaftServer[PingCommand](3, Ponger(h.env), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
 
 	fun ref tear_down(h: TestHelper) =>
 		// make sure to stop the servers
@@ -177,9 +184,9 @@ class iso _TestPingPong is UnitTest
 		// FIXME need to inform each replica server of the other servers in the group
 
 		// announce the severs on the network
-		_net.register(1, _r1)
-		_net.register(2, _r2)
-		_net.register(3, _r3)
+		_raft_peer_network.register(1, _r1)
+		_raft_peer_network.register(2, _r2)
+		_raft_peer_network.register(3, _r3)
 
 		// start sending ping commands
 		// (this client happens to be talking to raft server 2)
