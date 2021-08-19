@@ -52,7 +52,7 @@ interface tag PingerValidator
 
 actor NopPingerValidator is PingerValidator
 
-actor Pinger
+actor Pinger is Endpoint[Pong]
 	"""
 	Ping client.
 
@@ -91,6 +91,9 @@ actor Pinger
 			_replica(CommandEnvelope[PingCommand](Ping(_expect, _pinger_address, this)))
 		end
 
+	be apply(pong: Pong val) =>
+		validate(pong)
+
 	be validate(pong: Pong val) =>
 		if pong.expect == pong.counter then
 			// yay, got the expected count
@@ -112,7 +115,7 @@ class iso Ponger is StateMachine[PingCommand]
 	"""
 
 	let _env: Env
-	let _client_network: None // FIXME set up a client network for ping and pong
+	let _client_network: None // FIXME set up a client network for ping and pong - rather use the Transport interface
 
 	var _counter: U64
 
