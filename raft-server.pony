@@ -273,7 +273,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 				end
 		end
 		let res: VoteResponse val = consume ires
-		_network.send(votereq.candidate_id, res)
+		_network.unicast(votereq.candidate_id, res)
 
 	fun ref _process_vote_response(voteres: VoteResponse) =>
 		_monitor.vote_res(_id, voteres)
@@ -423,7 +423,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		reply.term = persistent.current_term
 		reply.success = success
 		let msg: AppendEntriesResult val = consume reply
-		_network.send(leader_id, msg)
+		_network.unicast(leader_id, msg)
 		// notify the monitor
 		_monitor.append_accepted(leader_id, msg.term, persistent.log.size()-1, msg.success)
 
@@ -456,7 +456,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			append.leader_id = _id
 			append.entries.clear() // Note, entries is `iso`
 
-			_network.send(p, consume append)
+			_network.unicast(p, consume append)
 		end
 
 	fun box _peer_up_to_date(peer_last_log_term: RaftTerm, peer_last_log_index: RaftIndex): Bool =>
@@ -541,7 +541,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			canvas.last_log_term = try persistent.log(volatile.commit_index.usize())?.term else RaftTerm(0) end
 			canvas.last_log_index = volatile.commit_index
 
-			_network.send(p, consume canvas)
+			_network.unicast(p, consume canvas)
 		end
 
 		// randomise the timeout between [150,300) ms

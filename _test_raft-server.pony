@@ -173,7 +173,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 		append.entries.push(Log[DummyCommand](3, cmd))
 
 		// send the log
-		_net.send(_follower_id, consume append)
+		_net.unicast(_follower_id, consume append)
 
 	be lead_two() =>
 		// continue with an overlapping e.g. (prev_log_index, prev_log_term) = (4,2) to change to log terms 11244
@@ -192,7 +192,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 		append.entries.push(Log[DummyCommand](4, cmd))
 
 		// send the log
-		_net.send(_follower_id, consume append)
+		_net.unicast(_follower_id, consume append)
 
 class iso _TestAppendRejectNoPrev is UnitTest
 	""" Tests that an append is rejected if there is no match for the 'prev' log entry. """
@@ -284,7 +284,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 		append.entries.push(consume l)
 
 		// send the log
-		_net.send(_follower_id, consume append)
+		_net.unicast(_follower_id, consume append)
 
 	be lead_two() =>
 		// continue with a valid update e.g. (prev_log_index, prev_log_term) = (1,1)
@@ -302,7 +302,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 		append.entries.push(consume l)
 
 		// send the log
-		_net.send(_follower_id, consume append)
+		_net.unicast(_follower_id, consume append)
 
 	be lead_three() =>
 		// now publish an out of sequence log entry e.g. (prev_log_index, prev_log_term) = (2,3)
@@ -321,7 +321,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 		append.entries.push(consume l)
 
 		// send the log
-		_net.send(_follower_id, consume append)
+		_net.unicast(_follower_id, consume append)
 
 class iso FollowerAppendMonitor is RaftServerMonitor
 
@@ -541,7 +541,7 @@ actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 			let vote: VoteResponse iso = recover iso VoteResponse end
 			vote.term = 0 // choose a low term so that the vote is accepted by the candidate
 			vote.vote_granted = true
-			_net.send(s.candidate_id, consume vote)
+			_net.unicast(s.candidate_id, consume vote)
 		| let s: AppendEntriesRequest[DummyCommand] =>
 			_seen_append = _seen_append + 1
 			match _seen_append
@@ -648,7 +648,7 @@ actor HeartbeatOnVoteMockRaftServer is RaftEndpoint[DummyCommand]
 			append.leader_commit = 0
 			append.leader_id = _id
 
-			_net.send(s.candidate_id, consume append)
+			_net.unicast(s.candidate_id, consume append)
 		end
 
 class iso _TestFailLowerTermAppend is UnitTest
@@ -701,7 +701,7 @@ class iso _TestFailLowerTermAppend is UnitTest
 		append.leader_id = listener_leader_id
 
 		h.env.out.print("sending append...")
-		net.send(receiver_follower_id, consume append)
+		net.unicast(receiver_follower_id, consume append)
 
 
 actor ExpectFailAppend is RaftEndpoint[DummyCommand]
@@ -927,7 +927,7 @@ class iso _TestRequestVote is UnitTest
 		canvas.candidate_id = listener_candidate_id
 
 		h.env.out.print("sending vote...")
-		net.send(receiver_candidate_id, consume canvas)
+		net.unicast(receiver_candidate_id, consume canvas)
 
 primitive DummyCommand
 	fun val start(): DummyCommand =>

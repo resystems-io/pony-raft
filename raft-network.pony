@@ -37,7 +37,11 @@ interface tag Transport[T: Any #send]
 
 	The endpoints are identified via a single identifier.
 	"""
-	be send(id: NetworkAddress, msg: T) => None
+	be unicast(id: NetworkAddress, msg: T) => None
+
+	be broadcast(id: NetworkAddress, msg: T) => None
+
+	be anycast(id: NetworkAddress, msg: T) => None
 
 interface val NetworkMonitor
 	"""
@@ -68,7 +72,7 @@ actor Network[T: Any #send] is Transport[T]
 	be register(id: NetworkAddress, server: Endpoint[T] tag) =>
 		_registry(id) = server
 
-	be send(id: NetworkAddress, msg: T) =>
+	be unicast(id: NetworkAddress, msg: T) =>
 		try
 			_registry(id)?.apply(consume msg)
 			_monitor.sent(id)
@@ -115,10 +119,10 @@ actor SpanningNetwork[A: Any val, B: Any val] is Transport[(A|B)]
 		_transa = consume transa
 		_transb = consume transb
 
-	be send(id: U16, msg: (A|B)) =>
+	be unicast(id: U16, msg: (A|B)) =>
 
 		// Note, this is ambiguous with respect to the case that A <: B (A is a subtype of B)
 		match msg
-		| let m: A => _transa.send(id, m)
-		| let m: B => _transb.send(id, m)
+		| let m: A => _transa.unicast(id, m)
+		| let m: B => _transb.unicast(id, m)
 		end

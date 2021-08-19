@@ -120,7 +120,7 @@ class iso Ponger is StateMachine[PingCommand]
 		_counter = _counter + 1
 		let pong: Pong = Pong(command.expect, _counter)
 		// send a pong back to the ping client via the client network
-		_client_network.send(command.pinger_address, consume pong)
+		_client_network.unicast(command.pinger_address, consume pong)
 
 class iso _TestPingPong is UnitTest
 	"""Tests basic life-cycle. """
