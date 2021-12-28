@@ -152,9 +152,9 @@ class iso _TestPingPong is UnitTest
 	new iso create() =>
 		_timers = Timers
 		// create a network for linking the servers
-		_raft_peer_network = Network[RaftSignal[PingCommand]]
+		_raft_peer_network = IntraProcessNetwork[RaftSignal[PingCommand]]
 		// create a network for responding back to clients
-		_client_network = Network[Pong]
+		_client_network = IntraProcessNetwork[Pong]
 		// create dummy servers
 		_r1 = NopRaftEndpoint[PingCommand]
 		_r2 = NopRaftEndpoint[PingCommand]

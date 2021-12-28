@@ -98,7 +98,7 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]](netmon)
+		let net:Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]](netmon)
 
 		// set up a monitor to wait for state changes and to trigger the mock leader
 		let mock_leader: _AppendAndOverwriteMockLeader = _AppendAndOverwriteMockLeader(h
@@ -126,12 +126,12 @@ interface tag _AppendMockLeader is RaftEndpoint[DummyCommand]
 actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 
 	let _h: TestHelper
-	let _net: Network[RaftSignal[DummyCommand]]
+	let _net: Transport[RaftSignal[DummyCommand]]
 	let _leader_id: NetworkAddress
 	let _follower_id: NetworkAddress
 
 	new create(h: TestHelper
-		, net: Network[RaftSignal[DummyCommand]]
+		, net: Transport[RaftSignal[DummyCommand]]
 		, leader_id: NetworkAddress, follower_id: NetworkAddress) =>
 		_h = h
 		_net = net
@@ -221,7 +221,7 @@ class iso _TestAppendRejectNoPrev is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]](netmon)
+		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]](netmon)
 
 		// set up a monitor to wait for state changes and to trigger the mock leader
 		let mock_leader: _AppendRejectNoPrevMockLeader = _AppendRejectNoPrevMockLeader(h
@@ -242,12 +242,12 @@ class iso _TestAppendRejectNoPrev is UnitTest
 actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 
 	let _h: TestHelper
-	let _net: Network[RaftSignal[DummyCommand]]
+	let _net: Transport[RaftSignal[DummyCommand]]
 	let _leader_id: NetworkAddress
 	let _follower_id: NetworkAddress
 
 	new create(h: TestHelper
-		, net: Network[RaftSignal[DummyCommand]]
+		, net: Transport[RaftSignal[DummyCommand]]
 		, leader_id: NetworkAddress, follower_id: NetworkAddress) =>
 		_h = h
 		_net = net
@@ -410,7 +410,7 @@ class iso _TestWaitForHeartbeats is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]](netmon)
+		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]](netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate-convert") // expecting RequestVote in the mock following this
 		h.expect_action("got-vote-request")
@@ -459,7 +459,7 @@ class iso _TestConvertToLeader is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]](netmon)
+		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]](netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate-convert") // expecting RequestVote in the mock following this
 		h.expect_action("got-vote-request")
@@ -518,11 +518,11 @@ class iso LeaderRaftServerMonitor is RaftServerMonitor
 actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
-	let _net: Network[RaftSignal[DummyCommand]]
+	let _net: Transport[RaftSignal[DummyCommand]]
 	let _id: NetworkAddress
 	var _seen_append: U16
 
-	new create(h: TestHelper, net: Network[RaftSignal[DummyCommand]], faux_peer_id: NetworkAddress) =>
+	new create(h: TestHelper, net: Transport[RaftSignal[DummyCommand]], faux_peer_id: NetworkAddress) =>
 		_h = h
 		_net = net
 		_id = faux_peer_id
@@ -584,7 +584,7 @@ class iso _TestConvertToFollower is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]](netmon)
+		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]](netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate") // expecting RequestVote in the mock
 		h.expect_action("got-vote-request")
@@ -628,10 +628,10 @@ class iso _TestConvertToFollower is UnitTest
 actor HeartbeatOnVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
-	let _net: Network[RaftSignal[DummyCommand]]
+	let _net: Transport[RaftSignal[DummyCommand]]
 	let _id: NetworkAddress
 
-	new create(h: TestHelper, net: Network[RaftSignal[DummyCommand]], faux_leader_id: NetworkAddress) =>
+	new create(h: TestHelper, net: Transport[RaftSignal[DummyCommand]], faux_leader_id: NetworkAddress) =>
 		_h = h
 		_net = net
 		_id = faux_leader_id
@@ -673,7 +673,7 @@ class iso _TestFailLowerTermAppend is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]]()
+		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]]()
 		// NB don't call h.complete(...) if using "expect actions"
 		h.expect_action("got-append-false")
 		h.expect_action("got-higher-term")
@@ -744,7 +744,7 @@ class iso _TestWaitForCanvas is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]]()
+		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]]()
 		// NB don't call h.complete(...) if using "expect actions"
 		h.expect_action("got-election-timeout")
 		h.expect_action("got-canvas") // expecting RequestVote in the mock
@@ -805,7 +805,7 @@ class iso _TestConvertToCandidate is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]]()
+		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]]()
 		h.expect_action("got-timeout")
 		h.expect_action("got-state")
 		h.expect_action("got-canvas") // expecting RequestVote in the mock
@@ -890,7 +890,7 @@ class iso _TestRequestVote is UnitTest
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net = Network[RaftSignal[DummyCommand]](netmon)
+		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]](netmon)
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
@@ -908,7 +908,7 @@ class iso _TestRequestVote is UnitTest
 			end
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress:
+		let replica: RaftServer[DummyCommand] = RaftServer[DummyCommand](1, DummyMachine, _timers, net, [as NetworkAddress:
 				receiver_candidate_id; listener_candidate_id;3], DummyCommand.start()
 				where monitor = consume mon)
 		let mock = ExpectVoteMockRaftServer(h)

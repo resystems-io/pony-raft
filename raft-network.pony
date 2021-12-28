@@ -10,10 +10,9 @@ interface tag Stoppable is DisposableActor
 
 interface tag Endpoint[T: Any #send] is Stoppable
 	"""
-	Logically and endpoing absorbes a message.
+	Logically an endpoint absorbs a message.
 
-	The implementation might then deleage the message to some
-	other element.
+	The implementation might then delegate the message to some other element.
 	"""
 	be apply(msg: T) => None
 
@@ -29,6 +28,10 @@ type NetworkAddress is U16
 	An address to identify processes attached to the network.
 
 	In the parlance of the Internet this would be the combination: IP:port.
+
+	In the parlance of a generalised system, this would be an identifier that is unique
+	to a given component that is linked into the control plane in which the component is
+	cooperating.
 	"""
 
 interface tag Transport[T: Any #send]
@@ -50,13 +53,31 @@ interface val NetworkMonitor
 	fun val dropped(id: NetworkAddress) => None
 	fun val sent(id: NetworkAddress) => None
 
+interface tag Network[T: Any #send] is Transport[T]
+	"""
+	A network defines a configuration transport layer.
+
+	The endpoints are identified via a single identifier.
+	"""
+
+	// TODO consider decoupling network element registration from the transport (i.e. if I have a reference to a transport
+	//      actor, I should not be able to register new elements)
+	// TODO rename this from network to mesh, since it assumes all elements are reachable and does not make consideration
+	//      for routing, or define linkages.
+
+	be register(id: NetworkAddress, server: Endpoint[T] tag) => None
+	be deregister(id: NetworkAddress, server: Endpoint[T] tag) => None
+
 class val NopNetworkMonitor is NetworkMonitor
 
-actor Network[T: Any #send] is Transport[T]
+actor IntraProcessNetwork[T: Any #send] is Network[T]
 	"""
 	A network linking endpoints (servers and clients)
 
 	The endpoints are identified via a single identifier.
+
+	This network implementation works within the local process and passes
+	data to registered endpoints actors.
 	"""
 
 	// TODO implement mechanisms to produce backpressure from the network
@@ -77,9 +98,13 @@ actor Network[T: Any #send] is Transport[T]
 			_registry(id)?.apply(consume msg)
 			_monitor.sent(id)
 		else
-			// TODO implement a network monitor
+			// alert the monitor of a dropped packet
 			_monitor.dropped(id)
 		end
+
+	be broadcast(msg: T) => None
+	be anycast(msg: T) => None
+
 
 actor SpanningEndpoint[A: Any val, B: Any val] is Endpoint[(A|B)]
 	"""

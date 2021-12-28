@@ -120,7 +120,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _rand: Random
 	let _monitor: RaftServerMonitor iso
 	let _timers: Timers
-	let _network: Network[RaftSignal[T]]
+	let _transport: Transport[RaftSignal[T]]
 	let _id: NetworkAddress
 	let _majority: USize
 	let _peers: Array[NetworkAddress]
@@ -140,7 +140,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	new create(id: NetworkAddress, machine: StateMachine[T] iso
 		, timers: Timers
-		, network: Network[RaftSignal[T]]
+		, network: Transport[RaftSignal[T]]
 		, peers: Array[NetworkAddress] val
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor iso = NopRaftServerMonitor
@@ -154,7 +154,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_monitor = consume monitor
 		_id = id
 		_timers = timers
-		_network = network
+		_transport = network
 
 		// copy peers but remove self
 		_majority = peers.size().shr(1) + 1 // we assume that the peer set odd in size
@@ -262,7 +262,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 				end
 		end
 		let res: VoteResponse val = consume ires
-		_network.unicast(votereq.candidate_id, res)
+		_transport.unicast(votereq.candidate_id, res)
 
 	fun ref _process_vote_response(voteres: VoteResponse) =>
 		_monitor.vote_res(_id, voteres)
@@ -412,7 +412,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		reply.term = persistent.current_term
 		reply.success = success
 		let msg: AppendEntriesResult val = consume reply
-		_network.unicast(leader_id, msg)
+		_transport.unicast(leader_id, msg)
 		// notify the monitor
 		_monitor.append_accepted(leader_id, msg.term, persistent.log.size()-1, msg.success)
 
@@ -445,7 +445,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			append.leader_id = _id
 			append.entries.clear() // Note, entries is `iso`
 
-			_network.unicast(p, consume append)
+			_transport.unicast(p, consume append)
 		end
 
 	fun box _peer_up_to_date(peer_last_log_term: RaftTerm, peer_last_log_index: RaftIndex): Bool =>
@@ -530,7 +530,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			canvas.last_log_term = try persistent.log(volatile.commit_index.usize())?.term else RaftTerm(0) end
 			canvas.last_log_index = volatile.commit_index
 
-			_network.unicast(p, consume canvas)
+			_transport.unicast(p, consume canvas)
 		end
 
 		// randomise the timeout between [150,300) ms
