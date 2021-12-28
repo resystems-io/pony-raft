@@ -16,7 +16,6 @@ actor RaftServerTests is TestList
 
 	fun tag tests(test: PonyTest) =>
 		test(_TestMajority)
-		test(_TestArrayWithout)
 		test(_TestRequestVote)
 		test(_TestConvertToCandidate)
 		test(_TestWaitForCanvas)
@@ -55,20 +54,6 @@ class iso _TestMajority is UnitTest
 		h.assert_eq[USize](4, _majority(6))
 	fun box _majority(full: USize): USize =>
 		full.shr(1) + 1
-
-class iso _TestArrayWithout is UnitTest
-	""" Tests removal of an element from an array. """
-	new iso create() => None
-	fun name(): String => "raft:server:without"
-	fun ref apply(h: TestHelper) ? =>
-		let all: Array[NetworkAddress] val = recover val [as NetworkAddress: 1;2;3;4;5] end
-		let without: Array[NetworkAddress] = ArrayWithout[NetworkAddress].without(4, all)?
-		h.assert_eq[USize](4, without.size())
-		h.assert_true(without.contains(1))
-		h.assert_true(without.contains(2))
-		h.assert_true(without.contains(3))
-		h.assert_true(without.contains(5))
-		h.assert_false(without.contains(4))
 
 class iso _TestAppendDropConflictingLogEntries is UnitTest
 	""" Tests that followers drop conflicinting log entries. """
