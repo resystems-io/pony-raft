@@ -1,5 +1,6 @@
 use "collections"
 use "time"
+use "random"
 
 
 // TODO consider being more explicit by defining Endpoint relative to Raft and RaftServer
@@ -15,6 +16,7 @@ interface tag Endpoint[T: Any #send] is Stoppable
 	The implementation might then delegate the message to some other element.
 	"""
 	be apply(msg: T) => None
+	be apply_copy(msg: val->T) => None
 
 actor NopEndpoint[T: Any #send] is Endpoint[T]
 	"""
@@ -42,7 +44,7 @@ interface tag Transport[T: Any #send]
 	"""
 	be unicast(id: NetworkAddress, msg: T) => None
 
-	be broadcast(msg: T) => None
+	be broadcast(msg: val->T) => None
 
 	be anycast(msg: T) => None
 
@@ -85,10 +87,12 @@ actor IntraProcessNetwork[T: Any #send] is Network[T]
 
 	let _monitor: NetworkMonitor
 	let _registry: Map[NetworkAddress, Endpoint[T] tag]
+	let _rand: Rand
 
 	new create(monitor: NetworkMonitor = NopNetworkMonitor) =>
 		_monitor = monitor
 		_registry = Map[NetworkAddress, Endpoint[T] tag]
+		_rand = Rand(1)
 
 	be register(id: NetworkAddress, server: Endpoint[T] tag) =>
 		_registry(id) = server
@@ -102,8 +106,25 @@ actor IntraProcessNetwork[T: Any #send] is Network[T]
 			_monitor.dropped(id)
 		end
 
-	be broadcast(msg: T) => None
-	be anycast(msg: T) => None
+	be broadcast(msg: val->T) =>
+		"""
+		Send the same message to all endpoints in the network.
+		"""
+		for (k, v) in _registry.pairs() do
+			v.apply_copy(msg)
+		end
+
+	be anycast(msg: T) =>
+		"""
+		Send the message to any one of the endpoints in the network.
+		""""
+		let p = _rand.int[USize](_registry.size())
+		try
+			(let k, let v) = _registry.index(p)?
+			v(consume msg)
+		else
+			_monitor.dropped(p.u16())
+		end
 
 
 actor SpanningEndpoint[A: Any val, B: Any val] is Endpoint[(A|B)]
