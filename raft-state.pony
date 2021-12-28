@@ -1,3 +1,8 @@
+/*
+ * Raft State defines records for all key data that needs to be maintained
+ * by the raft process machinery.
+ */
+
 // -- state
 
 class val Log[T: Any #send]

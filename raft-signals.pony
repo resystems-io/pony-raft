@@ -1,3 +1,10 @@
+/*
+ * Raft Signals
+ *
+ * All data types for messages that need to pass in between raft servers,
+ * or between a client and a raft server.
+ */
+
 type RaftSignalStandard is (
 	  VoteRequest val
 	| VoteResponse val
