@@ -40,8 +40,6 @@ primitive Leader
 	fun text():String val => "leader"
 
 type RaftMode is (Follower | Candidate | Leader)
-type RaftTerm is U64
-type RaftIndex is USize
 
 // -- trigger timeout logic
 
@@ -544,7 +542,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		persistent.voted_for = _id
 		candidate = VolatileCandidateState
 		candidate.vote()
-		// send vote requests to other replicas
+		// send vote requests to other replicas (in parallel)
 		for p in _peers.values() do
 			let canvas: VoteRequest iso = recover iso VoteRequest end
 			canvas.term = persistent.current_term

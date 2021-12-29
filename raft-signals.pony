@@ -28,7 +28,13 @@ type RaftSignal[T: Any val] is (
 	| RaftClientSignal[T] val
 )
 
+// -- common types used in signals
+
+type RaftTerm is U64
+type RaftIndex is USize
+
 // -- common accessors
+
 interface val HasTerm
 	fun val signal_term(): RaftTerm => 0
 
