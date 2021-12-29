@@ -134,6 +134,7 @@ class val AppendEntriesRequest[T: Any val]
 	var term: RaftTerm
 
 	// Index of the log entry immediately preceding the new ones.
+	// (i.e. this is the offset from which to and index when accessing interpret entries[])
 	var prev_log_index: RaftIndex
 
 	// Term of the `prev_log_index` entry.

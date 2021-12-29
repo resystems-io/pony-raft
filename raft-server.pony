@@ -44,11 +44,20 @@ type RaftMode is (Follower | Candidate | Leader)
 // -- trigger timeout logic
 
 primitive ElectionTimeout
-	""" Raised in a follower when it does not receive heartbeats and should start its own election. """
-primitive HeartbeatTimeout
-	""" Raised in a leader when it should publish heartbeats to its followers. """
+	"""
+	Raised in a follower when it does not receive heartbeats
+	and it should become a candidate and start its own election.
+	"""
 primitive CanvasTimeout
-	""" Raised in a candidate when it fails to canvas enough votes. """
+	"""
+	Raised in a candidate when it fails to canvas enough votes
+	and it should run a new election.
+	"""
+primitive HeartbeatTimeout
+	"""
+	Raised in a leader when it should publish heartbeats to its followers,
+	pottentially also appending log entries.
+	"""
 
 type RaftTimeout is (ElectionTimeout | HeartbeatTimeout | CanvasTimeout)
 
@@ -74,10 +83,12 @@ interface iso RaftServerMonitor
 	fun ref vote_res(id: NetworkAddress, signal: VoteResponse) => None
 	fun ref append_req(id: NetworkAddress) => None
 	fun ref append_res(id: NetworkAddress) => None
-	fun ref command_req(id: NetworkAddress) => None
-	fun ref command_res(id: NetworkAddress) => None
 	fun ref install_req(id: NetworkAddress) => None
 	fun ref install_res(id: NetworkAddress) => None
+
+	// -- follow client chatter
+	fun ref command_req(id: NetworkAddress) => None
+	fun ref command_res(id: NetworkAddress) => None
 
 	// -- follow internal state changes and timeouts
 	fun ref timeout_raised(timeout: RaftTimeout) => None
@@ -114,9 +125,9 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	state machine).
 	"""
 
-	let _lower_election_timeout: U64 = 150_000_000 // 150 ms
-	let _upper_election_timeout: U64 = 300_000_000 // 300 ms
-	let _repeat_election_timeout: U64 = 200_000_000 // 300 ms
+	let _lower_election_timeout: U64	= 150_000_000 // 150 ms
+	let _upper_election_timeout: U64	= 300_000_000 // 300 ms
+	let _repeat_election_timeout: U64	= 200_000_000 // 300 ms
 
 	/*
 		§9.3 "The leader was crashed uniformly randomly within
@@ -221,37 +232,37 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		match consume signal
 		// signal from the client with a command
-		| let s: CommandEnvelope[T] => _process_command(consume s) // note, no matching ResponseEnvelope
+		| let s: CommandEnvelope[T] => _process_client_command(consume s) // note, no matching ResponseEnvelope
 
 		// raft coordindation singals
-		| let s: VoteRequest => _process_vote_request(consume s)
-		| let s: VoteResponse => _process_vote_response(consume s)
-		| let s: AppendEntriesRequest[T] => _process_append_entries_request(consume s)
-		| let s: AppendEntriesResult => _process_append_entries_result(consume s)
-		| let s: InstallSnapshotRequest => _process_install_snapshot_request(consume s)
-		| let s: InstallSnapshotResponse => _process_install_snapshot_response(consume s)
+		| let s: VoteRequest							=> _process_vote_request(consume s)
+		| let s: VoteResponse							=> _process_vote_response(consume s)
+		| let s: AppendEntriesRequest[T]	=> _process_append_entries_request(consume s)
+		| let s: AppendEntriesResult			=> _process_append_entries_result(consume s)
+		| let s: InstallSnapshotRequest		=> _process_install_snapshot_request(consume s)
+		| let s: InstallSnapshotResponse	=> _process_install_snapshot_response(consume s)
 		end
 
 	be raise(timeout: RaftTimeout) =>
 		// TODO consider just ignoring timeout signals that don't match the current mode
 		_monitor.timeout_raised(timeout)
 		match timeout
-		| (let t: ElectionTimeout) => _start_candidate()
-		| (let t: CanvasTimeout) => _start_election()
-		| (let t: HeartbeatTimeout) => _emit_heartbeat()
+		| (let t: ElectionTimeout)	=> _start_candidate()
+		| (let t: CanvasTimeout)		=> _start_election()
+		| (let t: HeartbeatTimeout)	=> _emit_heartbeat()
 		end
 
 	// -- internals
 
 	// -- -- client command
 
-	fun ref _process_command(command: CommandEnvelope[T]) =>
+	fun ref _process_client_command(command: CommandEnvelope[T]) =>
 		""" Accept a new command from a client. """
 		_monitor.command_req(_id)
 		match _mode
-		| Follower	=> _accept_follower(consume command)
-		| Candidate	=> _accept_candidate(consume command)
-		| Leader		=> _accept_leader(consume command)
+		| Follower	=> _accept_command_as_follower(consume command)
+		| Candidate	=> _accept_command_as_candidate(consume command)
+		| Leader		=> _accept_command_as_leader(consume command)
 		end
 
 	// -- -- votes
@@ -499,7 +510,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 				end
 			end
 		else
-			// hmmm, our log probably empty (maybe we should correct our commit index?)
+			// hmmm, our log is probably empty (maybe we should correct our commit index?)
 			true
 		end
 
@@ -524,6 +535,12 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_set_timer(consume mt)
 
 	fun ref _start_candidate() =>
+		"""
+		Convert this server to being a candidate.
+
+		Triggered by:
+		  - ElectionTimeout
+		"""
 		// check that we are not already a candidate
 		if (_mode is Candidate) then return end
 
@@ -534,6 +551,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_start_election()
 
 	fun ref _start_election() =>
+		"""
+		Start a new election in this candidate.
+
+		Triggered by:
+		  - CanvasTimeout
+			- _start_candidate after an ElectionTimeout
+		"""
 		// only candidates can run elections
 		if (_mode isnt Candidate) then return end
 
@@ -583,15 +607,15 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// randomise the timeout between [150,300) ms
 		lower + _rand.int(upper - lower)
 
-	// -- command ingress
+	// -- client command ingress
 
-	fun ref _accept_follower(command: CommandEnvelope[T]) =>
+	fun ref _accept_command_as_follower(command: CommandEnvelope[T]) =>
 		// follower  - redirect command to the leader
 		//             (leader will reply, leader may provide backpressure)
 		// TODO
 		None
 
-	fun ref _accept_candidate(command: CommandEnvelope[T]) =>
+	fun ref _accept_command_as_candidate(command: CommandEnvelope[T]) =>
 		// candidate - queue the command until transitioning to being a leader or follower
 		//             (honour ttl and generate dropped message signals)
 		//             (send backpressure if the queue gets too large)
@@ -599,7 +623,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// TODO
 		None
 
-	fun ref _accept_leader(command: CommandEnvelope[T]) =>
+	fun ref _accept_command_as_leader(command: CommandEnvelope[T]) =>
 		// leader    - apply commands to the journal log and distribute them to followers
 		//             (may generate backpressure if the nextIndex vs matchedIndex vs log
 		//              starts to get too large)
