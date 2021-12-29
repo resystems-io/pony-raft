@@ -83,6 +83,7 @@ actor Pinger is Endpoint[Pong]
 		end
 
 	be apply(pong: Pong val) =>
+		_env.out.print("Pinger got a pong")
 		_validate(pong)
 
 	fun ref _validate(pong: Pong val) =>
@@ -195,9 +196,10 @@ class iso _TestPingPong is UnitTest
 		_client_network.register(pinger_address, pinger)
 
 		pinger.go()
-		pinger.stop()
 
-		// FIXME need to test that the client actuall got a pong for every ping
+		// FIXME need to test that the client actually got a pong for every ping
+
+		pinger.stop()
 
 		h.assert_true(true)
 
