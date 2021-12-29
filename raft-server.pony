@@ -65,6 +65,11 @@ actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
 // -- tracing
 
 interface iso RaftServerMonitor
+	"""
+	A monitor to trace raft server processing.
+
+	This will be informed of processing steps made by the raft server.
+	"""
 
 	// -- follow incoming chatter
 	fun ref vote_req(id: NetworkAddress, signal: VoteRequest val) => None
@@ -80,12 +85,17 @@ interface iso RaftServerMonitor
 	fun ref timeout_raised(timeout: RaftTimeout) => None
 	fun ref state_changed(mode: RaftMode, term: RaftTerm) => None
 	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm , last_index: RaftIndex, success: Bool) =>
-		"""last_index: the highest index seen by the replica, but not necessarily applied or committed. """
+		"""
+		last_index: the highest index seen by the replica, but not necessarily applied or committed.
+		"""
 		None
 
 class iso NopRaftServerMonitor is RaftServerMonitor
 
 interface tag RaftRaisable
+	"""
+	A receiver of raft server timeout notifications.
+	"""
 	be raise(timeout: RaftTimeout) => None
 
 // -- the server
@@ -118,12 +128,14 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _hearbeat_timeout: U64 = 75_000_000 // 75 ms
 
 	let _rand: Random
-	let _monitor: RaftServerMonitor iso
 	let _timers: Timers
-	let _transport: Transport[RaftSignal[T]]
+
 	let _id: NetworkAddress
+	let _transport: Transport[RaftSignal[T]]
 	let _majority: USize
-	let _peers: Array[NetworkAddress]
+	let _peers: Array[NetworkAddress]					// other servers in the raft
+
+	let _monitor: RaftServerMonitor iso
 	let _machine: StateMachine[T] iso					// implements the application logic
 
 	let persistent: PersistentServerState[T]	// holds the log
@@ -138,10 +150,11 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
-	new create(id: NetworkAddress, machine: StateMachine[T] iso
+	new create(id: NetworkAddress
 		, timers: Timers
 		, network: Transport[RaftSignal[T]]
 		, peers: Array[NetworkAddress] val
+		, machine: StateMachine[T] iso
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor iso = NopRaftServerMonitor
 		, initial_term: RaftTerm = 0 // really just for testing
@@ -151,9 +164,14 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		(let sec: I64, let nsec: I64) = Time.now()
 		_rand = Rand(sec.u64(), nsec.u64())
 
-		_monitor = consume monitor
-		_id = id
+		// time keeping
 		_timers = timers
+
+		// instrumentation
+		_monitor = consume monitor
+
+		// networking
+		_id = id
 		_transport = network
 
 		// copy peers but remove self
@@ -172,19 +190,25 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		_lastKnownLeader = 0
 		_mode = Follower
-		_mode_timer = Timer(object iso is TimerNotify end, 1, 1)
+		_mode_timer = Timer(object iso is TimerNotify end, 1, 1) // will expire soon
 		persistent.current_term = initial_term
 
 		// start in follower mode
 		_start_follower(initial_term)
 
+	// -- shutdown
+
 	be stop() =>
 		_timers.cancel(_mode_timer)
+
+
+	// -- processing
 
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
 		match signal
 		| (let s: RaftServerSignal[T]) => absorb(s)
 		else
+			// TODO if not fixed at compile time then hook in a monitor call with a warning
 			None // ignore non-server signals
 		end
 

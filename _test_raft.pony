@@ -164,9 +164,12 @@ class iso _TestPingPong is UnitTest
 
 	fun ref set_up(h: TestHelper) =>
 		// create the individual server replicas
-		_r1 = RaftServer[PingCommand](1, Ponger(h.env, _client_network), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
-		_r2 = RaftServer[PingCommand](2, Ponger(h.env, _client_network), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
-		_r3 = RaftServer[PingCommand](3, Ponger(h.env, _client_network), _timers, _raft_peer_network, [as U16: 1;2;3], Ping.start() )
+		_r1 = RaftServer[PingCommand](1, _timers, _raft_peer_network, [as U16: 1;2;3]
+					, Ponger(h.env, _client_network) , Ping.start() )
+		_r2 = RaftServer[PingCommand](2, _timers, _raft_peer_network, [as U16: 1;2;3]
+					, Ponger(h.env, _client_network) , Ping.start() )
+		_r3 = RaftServer[PingCommand](3, _timers, _raft_peer_network, [as U16: 1;2;3]
+					, Ponger(h.env, _client_network) , Ping.start() )
 
 	fun ref tear_down(h: TestHelper) =>
 		// make sure to stop the servers
