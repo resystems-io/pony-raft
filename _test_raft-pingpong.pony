@@ -6,7 +6,7 @@
 use "ponytest"
 use "time"
 
-actor RaftTests is TestList
+actor RaftPingPongTests is TestList
 
 	new create(env: Env) =>
 		PonyTest(env, this)
@@ -32,7 +32,7 @@ class val Ping
 		pinger_address = _pinger_address
 
 class val Pong
-	""" Sent by the server to along with a new counter. """
+	""" Sent by the server along with a new counter. """
 
 	let expect: U64
 	let counter: U64
@@ -40,8 +40,6 @@ class val Pong
 	new iso create(_expect: U64, _counter: U64) =>
 		expect = _expect
 		counter = _counter
-
-type PingCommand is Ping
 
 actor Pinger is Endpoint[Pong]
 	"""
@@ -56,14 +54,14 @@ actor Pinger is Endpoint[Pong]
 	// Ping messages will be sent in response to pong replies.
 	// Ping messages will hold the Pinger actor reference for the Ponger to reply to
 
-	let _replica: RaftEndpoint[PingCommand]
+	let _replica: RaftEndpoint[Ping]
 	let _env: Env
 	let _pinger_address: NetworkAddress
 
 	var _run: Bool
 	var _expect: U64
 
-	new create(pinger_address: NetworkAddress, replica: RaftEndpoint[PingCommand] tag, env: Env) =>
+	new create(pinger_address: NetworkAddress, replica: RaftEndpoint[Ping] tag, env: Env) =>
 		_replica = replica
 		_env = env
 		_pinger_address = pinger_address
@@ -79,7 +77,7 @@ actor Pinger is Endpoint[Pong]
 			_env.out.print("Sending ping: " + _expect.string())
 			// FIXME send to the replica via a Network
 			// (not sure if this should be _raft_peer_network, _client_network or a third network?)
-			_replica(CommandEnvelope[PingCommand](Ping(_expect, _pinger_address)))
+			_replica(CommandEnvelope[Ping](Ping(_expect, _pinger_address)))
 		end
 
 	be apply(pong: Pong val) =>
@@ -97,7 +95,7 @@ actor Pinger is Endpoint[Pong]
 		// maybe a pause should be scheduled...
 		go()
 
-class iso Ponger is StateMachine[PingCommand]
+class iso Ponger is StateMachine[Ping]
 	"""
 	Ping/Pong server state machine.
 
@@ -116,7 +114,7 @@ class iso Ponger is StateMachine[PingCommand]
 		_client_network = client_transport
 		_counter = 0
 
-	fun ref accept(command: PingCommand) =>
+	fun ref accept(command: Ping) =>
 		_env.out.print("Ponger state machine received ping: " + command.expect.string())
 		_counter = _counter + 1
 		let pong: Pong = Pong(command.expect, _counter)
@@ -144,32 +142,32 @@ class iso _TestPingPong is UnitTest
 
 
 	let _timers: Timers
-	let _raft_peer_network: Network[RaftSignal[PingCommand]]
+	let _raft_peer_network: Network[RaftSignal[Ping]]
 	let _client_network: Network[Pong]
-	var _r1: RaftEndpoint[PingCommand]
-	var _r2: RaftEndpoint[PingCommand]
-	var _r3: RaftEndpoint[PingCommand]
+	var _r1: RaftEndpoint[Ping]
+	var _r2: RaftEndpoint[Ping]
+	var _r3: RaftEndpoint[Ping]
 
 	new iso create() =>
 		_timers = Timers
 		// create a network for linking the servers
-		_raft_peer_network = IntraProcessNetwork[RaftSignal[PingCommand]]
+		_raft_peer_network = IntraProcessNetwork[RaftSignal[Ping]]
 		// create a network for responding back to clients
 		_client_network = IntraProcessNetwork[Pong]
 		// create dummy servers
-		_r1 = NopRaftEndpoint[PingCommand]
-		_r2 = NopRaftEndpoint[PingCommand]
-		_r3 = NopRaftEndpoint[PingCommand]
+		_r1 = NopRaftEndpoint[Ping]
+		_r2 = NopRaftEndpoint[Ping]
+		_r3 = NopRaftEndpoint[Ping]
 
 	fun name(): String => "raft:pingpong"
 
 	fun ref set_up(h: TestHelper) =>
 		// create the individual server replicas
-		_r1 = RaftServer[PingCommand](1, _timers, _raft_peer_network, [as U16: 1;2;3]
+		_r1 = RaftServer[Ping](1, _timers, _raft_peer_network, [as U16: 1;2;3]
 					, Ponger(h.env, _client_network) , Ping.start() )
-		_r2 = RaftServer[PingCommand](2, _timers, _raft_peer_network, [as U16: 1;2;3]
+		_r2 = RaftServer[Ping](2, _timers, _raft_peer_network, [as U16: 1;2;3]
 					, Ponger(h.env, _client_network) , Ping.start() )
-		_r3 = RaftServer[PingCommand](3, _timers, _raft_peer_network, [as U16: 1;2;3]
+		_r3 = RaftServer[Ping](3, _timers, _raft_peer_network, [as U16: 1;2;3]
 					, Ponger(h.env, _client_network) , Ping.start() )
 
 	fun ref tear_down(h: TestHelper) =>
