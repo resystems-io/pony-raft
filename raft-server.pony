@@ -41,6 +41,60 @@ primitive Leader
 
 type RaftMode is (Follower | Candidate | Leader)
 
+primitive Paused
+	"""
+	Signaled when a raft server stops processing events.
+
+	The server will stop processing any events:
+	- internal timers will be reset and ignored
+	- client commands will be ignored
+	- peer messages will be ignored
+
+	The server's volatile and persistent state will be left as-is.
+	"""
+	fun text():String val => "paused"
+primitive Resumed
+	"""
+	Signaled when a raft server starts processing events again.
+
+	The server will now start handling messages again, in accordance
+	with whatever volatile and persistent state it has.
+	"""
+	fun text():String val => "resumed"
+primitive ResetVolatile
+	"""
+	Signaled when a raft server resets its volatile state.
+
+	- All timers are reset.
+	- All volatile state is cleared (including the state-machine).
+	"""
+	fun text():String val => "reset-volatile"
+primitive ResetPersistent
+	"""
+	Signaled with a raft server performs a reset of stored logs.
+
+	- Implies a volatile reset.
+	- All persistent, non-snapshot, state is cleared.
+	- Recovery is relative to the potential snapshot data, together with
+	  data from other replicas.
+	"""
+	fun text():String val => "reset-persistent"
+primitive ResetSnapshot
+	"""
+	Signaled with a raft server performs a reset of its snapshots.
+
+	- Implies a persistent reset (and therefore also a volitile reset).
+	- All snapshot data is removed.
+	- Recovery depends fully on the data available from other replicas.
+	"""
+	fun text():String val => "reset-persistent"
+
+type RaftReset is (ResetVolatile | ResetPersistent)
+
+type RaftProcessing is (Paused | Resumed)
+
+type RaftControl is (RaftReset | RaftProcessing | ResetSnapshot)
+
 // -- trigger timeout logic
 
 primitive ElectionTimeout
@@ -236,14 +290,23 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_mode_timer = Timer(object iso is TimerNotify end, 1, 1) // will expire soon
 		persistent.current_term = initial_term
 
+		// signal resume
+		// TODO
+
 		// start in follower mode
 		_start_follower(initial_term)
 
 	// -- shutdown
 
 	be stop() =>
-		_timers.cancel(_mode_timer)
+		_clear_timer() // FIXME this is not necessary once the control calls work
+		control([as RaftControl: Paused; ResetVolatile])
 
+	be control(ctls: Array[RaftControl] val) =>
+		"""
+		Perform any control operations listed.
+		"""
+		None
 
 	// -- processing
 
@@ -666,8 +729,11 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		let mt: Timer iso = Timer(_Timeout(this, HeartbeatTimeout), 0, _hearbeat_timeout)
 		_set_timer(consume mt)
 
-	fun ref _set_timer(mt: Timer iso) =>
+	fun ref _clear_timer() =>
 		_timers.cancel(_mode_timer) // cancel any previous timers before recording a new one
+
+	fun ref _set_timer(mt: Timer iso) =>
+		_clear_timer()
 		_mode_timer = mt
 		_timers(consume mt)
 
