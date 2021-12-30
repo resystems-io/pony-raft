@@ -203,8 +203,11 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		h.expect_action("got-append-success-two-1:2")
 		h.expect_action("got-append-failure-three-4:2")
 
-		let receiver_candidate_id: NetworkAddress = 1 // actual replica server being tested
-		let peer_one_id: NetworkAddress = 2 // observer validating the replies
+		let follower_id: NetworkAddress = 1 // actual replica server being tested
+		let mock_leader_id: NetworkAddress = 2 // observer validating the replies
+
+		h.env.out.print("net address - follower: " + follower_id.string())
+		h.env.out.print("net address - mock leader: " + mock_leader_id.string())
 
 		// create a network
 		let netmon = EnvNetworkMonitor(h.env)
@@ -212,21 +215,22 @@ class iso _TestAppendRejectNoPrev is UnitTest
 
 		// set up a monitor to wait for state changes and to trigger the mock leader
 		let mock_leader: _AppendRejectNoPrevMockLeader = _AppendRejectNoPrevMockLeader(h
-													, net, peer_one_id, receiver_candidate_id)
+													, net, mock_leader_id, follower_id)
 		let mon: RaftServerMonitor[DummyCommand] iso = FollowerAppendMonitor[DummyCommand](h, mock_leader)
 
-		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](receiver_candidate_id
+		// create a follower (NB raft servers start as followers by default)
+		let replica = RaftServer[DummyCommand](follower_id
 			, _timers, net
-			, [as NetworkAddress: receiver_candidate_id; peer_one_id ]
+			, [as NetworkAddress: follower_id; mock_leader_id ]
 			, DummyMachine, DummyCommand.start()
 			where monitor = consume mon)
+		// register components that need to be shut down
 		h.dispose_when_done(replica)
 		h.dispose_when_done(mock_leader)
 
 		// register network endpoints
-		net.register(receiver_candidate_id, replica)
-		net.register(peer_one_id, mock_leader)
+		net.register(follower_id, replica)
+		net.register(mock_leader_id, mock_leader)
 
 actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 
@@ -339,6 +343,8 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 			if (not _seen_follower) then
 				_h.env.out.print("triggering mock lead one")
 				_mock_leader.lead_one()
+			else
+				_h.env.out.print("already seen follower - _not_ triggering mock lead one")
 			end
 			_seen_follower = true
 		| Candidate =>
@@ -970,8 +976,8 @@ class val EnvNetworkMonitor is NetworkMonitor
 	new val create(env: Env) =>
 		_env = env
 
-	fun val dropped(id: NetworkAddress) => _env.out.print("net dropped: " + id.string())
-	fun val sent(id: NetworkAddress) => _env.out.print("net sent: " + id.string())
+	fun val dropped(id: NetworkAddress) => _env.out.print("net dropped send to: " + id.string())
+	fun val sent(id: NetworkAddress) => _env.out.print("net sent to: " + id.string())
 
 actor ExpectVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
