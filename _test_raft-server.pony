@@ -88,7 +88,7 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 		// set up a monitor to wait for state changes and to trigger the mock leader
 		let mock_leader: _AppendAndOverwriteMockLeader = _AppendAndOverwriteMockLeader(h
 													, net, peer_one_id, receiver_candidate_id)
-		let mon: RaftServerMonitor iso = FollowerAppendMonitor(h, mock_leader)
+		let mon: RaftServerMonitor[DummyCommand] iso = FollowerAppendMonitor[DummyCommand](h, mock_leader)
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id
@@ -213,7 +213,7 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		// set up a monitor to wait for state changes and to trigger the mock leader
 		let mock_leader: _AppendRejectNoPrevMockLeader = _AppendRejectNoPrevMockLeader(h
 													, net, peer_one_id, receiver_candidate_id)
-		let mon: RaftServerMonitor iso = FollowerAppendMonitor(h, mock_leader)
+		let mon: RaftServerMonitor[DummyCommand] iso = FollowerAppendMonitor[DummyCommand](h, mock_leader)
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id
@@ -312,7 +312,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 		// send the log
 		_net.unicast(_follower_id, consume append)
 
-class iso FollowerAppendMonitor is RaftServerMonitor
+class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 
 	"""
 	Waits for the replica to become a follower.
@@ -347,20 +347,43 @@ class iso FollowerAppendMonitor is RaftServerMonitor
 			_h.fail("follower should not become a leader")
 		end
 
-	fun ref append_accepted(leader_id: NetworkAddress
-				, term: RaftTerm, last_index: RaftIndex, success: Bool) =>
-		_h.env.out.print("got append accept: " + success.string()
-											+ " term: " + term.string()
-											+ " last_index: " + last_index.string()
-											+ " leader: " + leader_id.string()
+	fun ref append_accepted(id: NetworkAddress
+		, current_term: RaftTerm
+		, last_applied_index: RaftIndex
+		, commit_index: RaftIndex
+		, last_log_index: RaftIndex
+
+		, leader_term: RaftTerm
+		, leader_id: NetworkAddress
+		, leader_commit_index: RaftIndex
+		, leader_prev_log_index: RaftIndex
+		, leader_prev_log_term: RaftTerm
+		, leader_entry_count: USize
+
+		, applied: Bool // true if these
+		) =>
+
+		_h.env.out.print("got append accept: " + applied.string()
+											+ " id: " + id.string()
+											+ " current_term: " + current_term.string()
+											+ " last_applied_index: " + last_applied_index.string()
+											+ " last_log_index: " + last_log_index.string()
+
+											+ " leader_term:" + leader_term.string()
+											+ " leader_id: " + leader_id.string()
+											+ " leader_commit_index:" + leader_commit_index.string()
+											+ " leader_prev_log_index:" + leader_prev_log_index.string()
+											+ " leader_prev_log_term:" + leader_prev_log_term.string()
+											+ " leader_entry_count:" + leader_entry_count.string()
 											)
+
 		_count_append = _count_append + 1
-		let pass: String = if success then "success" else "failure" end
+		let pass: String = if applied then "success" else "failure" end
 		let num: String val = Digits.number(_count_append)
 		let token: String = "got-append-" + pass + "-" + num + "-"
-													+ term.string() + ":" + last_index.string()
+													+ current_term.string() + ":" + last_log_index.string()
 
-		match (_count_append, success)
+		match (_count_append, applied)
 		| (1, true) =>
 			_h.env.out.print("triggering mock lead two: " + token)
 			_mock_leader.lead_two()
@@ -408,7 +431,7 @@ class iso _TestWaitForHeartbeats is UnitTest
 		h.expect_action("got-heartbeat-two")
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor iso = LeaderRaftServerMonitor(h)
+		let mon: RaftServerMonitor[DummyCommand] iso = LeaderRaftServerMonitor[DummyCommand](h)
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id
@@ -457,7 +480,7 @@ class iso _TestConvertToLeader is UnitTest
 		h.expect_action("got-leader-convert")
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor iso = LeaderRaftServerMonitor(h)
+		let mon: RaftServerMonitor[DummyCommand] iso = LeaderRaftServerMonitor[DummyCommand](h)
 
 		// register components that need to be shut down
 		let replica = RaftServer[DummyCommand](receiver_candidate_id
@@ -476,7 +499,7 @@ class iso _TestConvertToLeader is UnitTest
 		net.register(peer_one_id, peer_one)
 		net.register(peer_two_id, peer_two)
 
-class iso LeaderRaftServerMonitor is RaftServerMonitor
+class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 
 	let _h: TestHelper
 	var _seen_follower: Bool
@@ -584,7 +607,7 @@ class iso _TestConvertToFollower is UnitTest
 		h.expect_action("got-follower-convert")
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
+		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
 				let _h: TestHelper = h
 				var _seen_follower: Bool = false
 				var _is_candidate: Bool = false
@@ -750,7 +773,7 @@ class iso _TestWaitForCanvas is UnitTest
 		h.expect_action("got-canvas-again") // expecting RequestVote in the mock with a higher term
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
+		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
 				let _h: TestHelper = h
 				fun box timeout_raised(timeout: RaftTimeout) =>
 					match timeout
@@ -810,7 +833,7 @@ class iso _TestConvertToCandidate is UnitTest
 		h.expect_action("got-canvas") // expecting RequestVote in the mock
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
+		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
 				let _h: TestHelper = h
 				fun box timeout_raised(timeout: RaftTimeout) =>
 					if (timeout is ElectionTimeout) then
@@ -894,16 +917,18 @@ class iso _TestRequestVote is UnitTest
 		let net: Network[RaftSignal[DummyCommand]] = IntraProcessNetwork[RaftSignal[DummyCommand]](netmon)
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor iso = object iso is RaftServerMonitor
+		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
 				let _env: Env = h.env
 				fun box vote_req(id: NetworkAddress, signal: VoteRequest val) => _env.out.print("vote req: " + id.string() + " term:" + signal.term.string())
 				fun box vote_res(id: NetworkAddress, signal: VoteResponse val) => _env.out.print("vote res: " + id.string() + " term:" + signal.term.string())
-				fun box append_req(id: NetworkAddress) => _env.out.print("append req: " + id.string())
-				fun box append_res(id: NetworkAddress) => _env.out.print("append res: " + id.string())
+				fun box append_req(id: NetworkAddress, signal: AppendEntriesRequest[DummyCommand] val) => _env.out.print("append req: " + id.string())
+				fun box append_res(id: NetworkAddress, signal: AppendEntriesResult val) => _env.out.print("append res: " + id.string())
+				fun box install_req(id: NetworkAddress, signal: InstallSnapshotRequest val) => _env.out.print("install req: " + id.string())
+				fun box install_res(id: NetworkAddress, signal: InstallSnapshotResponse val) => _env.out.print("install res: " + id.string())
+
 				fun box command_req(id: NetworkAddress) => _env.out.print("command req: " + id.string())
 				fun box command_res(id: NetworkAddress) => _env.out.print("command res: " + id.string())
-				fun box install_req(id: NetworkAddress) => _env.out.print("install req: " + id.string())
-				fun box install_res(id: NetworkAddress) => _env.out.print("install res: " + id.string())
+
 				fun box timeout_raised(timeout: RaftTimeout) => _env.out.print("timeout raised")
 				fun box state_changed(mode: RaftMode, term: RaftTerm) => _env.out.print("mode changed: " + mode.text() + " term:" + term.string())
 			end

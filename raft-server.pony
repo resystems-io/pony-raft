@@ -71,20 +71,20 @@ actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
 
 // -- tracing
 
-interface iso RaftServerMonitor
+interface iso RaftServerMonitor[T: Any val]
 	"""
 	A monitor to trace raft server processing.
 
 	This will be informed of processing steps made by the raft server.
 	"""
 
-	// -- follow incoming chatter
+	// -- follow incoming chatter that is recevied by a server
 	fun ref vote_req(id: NetworkAddress, signal: VoteRequest val) => None
 	fun ref vote_res(id: NetworkAddress, signal: VoteResponse) => None
-	fun ref append_req(id: NetworkAddress) => None
-	fun ref append_res(id: NetworkAddress) => None
-	fun ref install_req(id: NetworkAddress) => None
-	fun ref install_res(id: NetworkAddress) => None
+	fun ref append_req(id: NetworkAddress, signal: AppendEntriesRequest[T] val) => None
+	fun ref append_res(id: NetworkAddress, signal: AppendEntriesResult) => None
+	fun ref install_req(id: NetworkAddress, signal: InstallSnapshotRequest val) => None
+	fun ref install_res(id: NetworkAddress, signal: InstallSnapshotResponse) => None
 
 	// -- follow client chatter
 	fun ref command_req(id: NetworkAddress) => None
@@ -93,13 +93,43 @@ interface iso RaftServerMonitor
 	// -- follow internal state changes and timeouts
 	fun ref timeout_raised(timeout: RaftTimeout) => None
 	fun ref state_changed(mode: RaftMode, term: RaftTerm) => None
-	fun ref append_accepted(leader_id: NetworkAddress, term: RaftTerm , last_index: RaftIndex, success: Bool) =>
+	fun ref append_accepted(id: NetworkAddress
+		, current_term: RaftTerm
+		, last_applied_index: RaftIndex
+		, commit_index: RaftIndex
+		, last_log_index: RaftIndex
+
+		, leader_term: RaftTerm
+		, leader_id: NetworkAddress
+		, leader_commit_index: RaftIndex
+		, leader_prev_log_index: RaftIndex
+		, leader_prev_log_term: RaftTerm
+		, leader_entry_count: USize
+
+		, applied: Bool // true if these
+		) =>
 		"""
+		Raised when this replica accepts a log entry into is log.
+
+		Note, this does not imply that the log entry has been applied to the state machine.
+
 		last_index: the highest index seen by the replica, but not necessarily applied or committed.
 		"""
 		None
+	fun ref state_machine_update(id: NetworkAddress
+		, current_term: RaftTerm
+		, last_applied_index: RaftIndex
+		, commit_index: RaftIndex
+		, last_log_index: RaftIndex
 
-class iso NopRaftServerMonitor is RaftServerMonitor
+		, update_log_index: RaftIndex // the index of the local log that is being applied to the state-machine
+		) =>
+		"""
+		Raised when the replica is publishing a log command to be processed by the state machine.
+		"""
+			None
+
+class iso NopRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 
 interface tag RaftRaisable
 	"""
@@ -117,6 +147,10 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	Additionally, the server maintains the log in the persistent state. Finally, the server
 	delegates committed log entries, containing commands of type T, to the application
 	specific state machine.
+
+	Log entries are considered commited when they are safe to be applied to the state-machine.
+	That is, when a majority of the servers have appended the entry to their logs, and acknowledged
+	that inclusion.
 
 	The servers in the raft communicate via the network.
 
@@ -144,7 +178,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _majority: USize
 	let _peers: Array[NetworkAddress]					// other servers in the raft
 
-	let _monitor: RaftServerMonitor iso
+	let _monitor: RaftServerMonitor[T] iso
 	let _machine: StateMachine[T] iso					// implements the application logic
 
 	let persistent: PersistentServerState[T]	// holds the log
@@ -165,7 +199,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		, peers: Array[NetworkAddress] val
 		, machine: StateMachine[T] iso
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
-		, monitor: RaftServerMonitor iso = NopRaftServerMonitor
+		, monitor: RaftServerMonitor[T] iso = NopRaftServerMonitor[T]
 		, initial_term: RaftTerm = 0 // really just for testing
 		) =>
 
@@ -232,15 +266,16 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 		match consume signal
 		// signal from the client with a command
-		| let s: CommandEnvelope[T] => _process_client_command(consume s) // note, no matching ResponseEnvelope
+		| let s: CommandEnvelope[T] => _monitor.command_req(_id); _process_client_command(consume s) // note, no matching ResponseEnvelope
 
 		// raft coordindation singals
-		| let s: VoteRequest							=> _process_vote_request(consume s)
-		| let s: VoteResponse							=> _process_vote_response(consume s)
-		| let s: AppendEntriesRequest[T]	=> _process_append_entries_request(consume s)
-		| let s: AppendEntriesResult			=> _process_append_entries_result(consume s)
-		| let s: InstallSnapshotRequest		=> _process_install_snapshot_request(consume s)
-		| let s: InstallSnapshotResponse	=> _process_install_snapshot_response(consume s)
+		// TODO add calls to _monitor
+		| let s: VoteRequest							=> _monitor.vote_req(_id, s);			_process_vote_request(consume s)
+		| let s: VoteResponse							=> _monitor.vote_res(_id, s);			_process_vote_response(consume s)
+		| let s: AppendEntriesRequest[T]	=> _monitor.append_req(_id, s);		_process_append_entries_request(consume s)
+		| let s: AppendEntriesResult			=> _monitor.append_res(_id, s);		_process_append_entries_result(consume s)
+		| let s: InstallSnapshotRequest		=> _monitor.install_req(_id, s);	_process_install_snapshot_request(consume s)
+		| let s: InstallSnapshotResponse	=> _monitor.install_res(_id, s);	_process_install_snapshot_response(consume s)
 		end
 
 	be raise(timeout: RaftTimeout) =>
@@ -258,7 +293,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	fun ref _process_client_command(command: CommandEnvelope[T]) =>
 		""" Accept a new command from a client. """
-		_monitor.command_req(_id)
 		match _mode
 		| Follower	=> _accept_command_as_follower(consume command)
 		| Candidate	=> _accept_command_as_candidate(consume command)
@@ -269,7 +303,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	fun ref _process_vote_request(votereq: VoteRequest) =>
 		""" See Raft §5.2 """
-		_monitor.vote_req(_id, votereq)
 		let ires: VoteResponse iso = recover iso VoteResponse end
 		ires.term = persistent.current_term
 		if votereq.term < persistent.current_term then
@@ -298,7 +331,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		_transport.unicast(votereq.candidate_id, res)
 
 	fun ref _process_vote_response(voteres: VoteResponse) =>
-		_monitor.vote_res(_id, voteres)
 		if (_mode isnt Candidate) then return end // ignore late vote responses
 		candidate.vote(voteres.vote_granted)
 		// see if we got a majority
@@ -307,6 +339,16 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		end
 
   // -- -- apending
+
+	fun ref _last_log_index(): RaftIndex =>
+		let last_index: RaftIndex = persistent.log.size()-1
+		last_index
+
+	fun ref _commit_index(): RaftIndex =>
+			volatile.commit_index
+
+	fun ref _last_applied_index(): RaftIndex =>
+			volatile.last_applied
 
 	/*
 	 * See §5.3 Log Replication
@@ -335,7 +377,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	 */
 
 	fun ref _process_append_entries_request(appendreq: AppendEntriesRequest[T]) =>
-		_monitor.append_req(_id)
 		// decide if we should actually just become a follower (and bow to a new leader)
 		let convert_to_follower: Bool = if
 			((_mode is Candidate) and (appendreq.term >= persistent.current_term)) then
@@ -349,13 +390,13 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			end
 
 		if convert_to_follower then
-			// convert to a follower and continue to process othe signal
+			// convert to a follower and continue to process the signal
 			_start_follower(appendreq.term)
 		end
 
 		// decide if this request should be honoured (we might be ahead in a new term)
 		if (appendreq.term < persistent.current_term) then
-			_emit_append_res(appendreq.leader_id, false)
+			_emit_append_res(appendreq, false)
 			return
 		end
 
@@ -369,7 +410,8 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			end
 
 		if not has_prev_term then
-			_emit_append_res(appendreq.leader_id, false)
+			// here we are asking the leader to rewind and send us earlier entries
+			_emit_append_res(appendreq, false)
 			return
 		end
 
@@ -377,13 +419,22 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// delete the existing entry and all that follow it (§5.3).
 		// (Note we can assume that conflicts can not happen bellow the current commit index.)
 		// (Note, we've already checked that there is no "conflict" at `prev_log_index`)
-		var idx: RaftIndex = appendreq.prev_log_index + 1
-		var log_end: RaftIndex = persistent.log.size()
+		//
+		//  prev    |s|i| | | | | |a            - append logs rpc with l entries
+		//          ---------------
+		//   …| | | | |i| | |e                  - this replicas current log entries
+		//   ----------------
+		//
+		//   s == append_start, i == idx, e == log_end, a == append_end, l == append_len
+		let log_end: RaftIndex = persistent.log.size() // TODO we might need to offset this by the snapshot start
+		let append_start: RaftIndex = appendreq.prev_log_index + 1
 		let append_len: USize = appendreq.entries.size()
-		let append_end: RaftIndex = idx + append_len
+		let append_end: RaftIndex = append_start + append_len
+
+		var idx: RaftIndex = append_start
 		try
 			while (idx < append_end) and (idx < log_end) do
-					let off: RaftIndex = idx - append_len - 1
+					let off: RaftIndex = idx - append_start
 					let al: Log[T] val = appendreq.entries(off)?
 					let rl: Log[T] val = persistent.log(idx)?
 					if (al.term == rl.term) then
@@ -416,17 +467,17 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 			volatile.commit_index = appendreq.leader_commit.min(last_new_one)
 		end
 
-		// respond 'true' to the leader
-		// (FIXME since we are processing asynchronously we need a correlation ID or more state)
-		// (might be able to use the follower ID and log index values?)
-		_emit_append_res(appendreq.leader_id, true)
-
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
 		if not convert_to_follower then
 			// no need to do this if we already converted to a follower (since that resets the timers)
 			// but now we still want to reset the timers
 			_start_follower_timer()
 		end
+
+		// respond 'true' to the leader
+		// (FIXME since we are processing asynchronously we need a correlation ID or more state)
+		// (might be able to use the follower ID and log index values?)
+		_emit_append_res(appendreq, true)
 
 		// now update the state machine if need be
 		_apply_logs_to_state_machine()
@@ -439,29 +490,50 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		// TODO _machine.accept(...)
 		None
 
-	fun ref _emit_append_res(leader_id: NetworkAddress, success: Bool) =>
+	fun ref _emit_append_res(appendreq: AppendEntriesRequest[T], success: Bool) =>
 		// notify the leader
 		let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
 		reply.term = persistent.current_term
 		reply.success = success
 		let msg: AppendEntriesResult val = consume reply
-		_transport.unicast(leader_id, msg)
-		// notify the monitor
-		_monitor.append_accepted(leader_id, msg.term, persistent.log.size()-1, msg.success)
+		_transport.unicast(appendreq.leader_id, msg)
+
+		// notify the monitor of our decision to, or not to, incorpate the entry
+		let last_index = _last_log_index()
+		let commit_index = _commit_index()
+		let last_applied_index = _last_applied_index()
+
+		_monitor.append_accepted(_id
+			where
+				current_term = persistent.current_term
+			, last_applied_index = _last_applied_index()
+			, commit_index = _commit_index()
+			, last_log_index = _last_log_index()
+
+			, leader_term = appendreq.term
+			, leader_id = appendreq.leader_id
+			, leader_commit_index = appendreq.leader_commit
+			, leader_prev_log_index = appendreq.prev_log_index
+			, leader_prev_log_term = appendreq.prev_log_term
+			, leader_entry_count = appendreq.entries.size()
+
+			, applied = msg.success
+		)
+
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
-		_monitor.append_res(_id)
 		// TODO
+		None
 
 	// -- -- snapshots
 
 	fun ref _process_install_snapshot_request(snapshotreq: InstallSnapshotRequest) =>
-		_monitor.install_res(_id)
 		// TODO
+		None
 
 	fun ref _process_install_snapshot_response(snapshotres: InstallSnapshotResponse) =>
-		_monitor.install_req(_id)
 		// TODO
+		None
 
 	// -- -- consensus module
 
