@@ -76,10 +76,10 @@ actor CounterClient
 	var _sent: U32		// number of commands sent
 	var _ack: U32			// number of acknowledgements received
 
-	var _last_total: U32
-	var _last_value: U32
-
 	var _started: Bool
+	var _stopped: Bool
+
+	// TODO introduce correlation tokens or correlation state in order to check monotinicity
 
 	new create(h: TestHelper, id: U32, emitter: NotificationEmitter[CounterCommand]) =>
 		_id = id
@@ -92,9 +92,8 @@ actor CounterClient
 		_sent = 0
 		_ack = 0
 
-		_last_total = 0
-		_last_value = 0
 		_started = false
+		_stopped = false
 
 	be work(amount: U32, last: Bool = false) =>
 		// _h.env.out.print("client got work...")
@@ -102,7 +101,7 @@ actor CounterClient
 			_started = true
 			_h.complete_action("source-1:start")
 		end
-		if _last then
+		if _last or _stopped then
 			// ignore work added after the last call
 			return
 		end
@@ -110,6 +109,10 @@ actor CounterClient
 		_expect = _expect + amount
 		_last = last
 		_drain()
+
+	be stop() =>
+		// force a stop
+		_fin()
 
 	be _drain() =>
 		if _work <= 0 then
@@ -125,13 +128,20 @@ actor CounterClient
 		_drain()
 
 	fun ref _fin() =>
-		let t1:String val = "source-" + _id.string() + ":end:sent=" + _sent.string()
-		let t2:String val = "source-" + _id.string() + ":end:ack=" + _ack.string()
-		_h.complete_action(t1)
-		_h.complete_action(t2)
-		// _h.env.out.print("client fin " + t1 + " " + t2)
+		if not _stopped then
+			_stopped = true
+			let t1:String val = "source-" + _id.string() + ":end:sent=" + _sent.string()
+			let t2:String val = "source-" + _id.string() + ":end:ack=" + _ack.string()
+			_h.complete_action(t1)
+			_h.complete_action(t2)
+			// _h.env.out.print("client fin " + t1 + " " + t2)
+		end
 
 	be apply(event: CounterTotal) =>
+		if _stopped then
+			// _h.env.out.print("client got late total...")
+			return
+		end
 		// _h.env.out.print("client got total...")
 		_ack = _ack + 1
 		_expect = _expect - 1
@@ -235,6 +245,14 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		h.expect_action("source-1:end:timeouts=false")
 		h.expect_action("raft-1:resumed:1")
 		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-1:resumed:2")
+		h.expect_action("raft-1:resumed:2;client-messages-after-resume=true")
+		h.expect_action("raft-1:resumed:3")
+		h.expect_action("raft-1:resumed:3;client-messages-after-resume=true")
+		h.expect_action("raft-1:resumed:4")
+		h.expect_action("raft-1:resumed:4;client-messages-after-resume=true")
+		h.expect_action("raft-1:resumed:5")
+		h.expect_action("raft-1:resumed:5;client-messages-after-resume=true")
 
 		// TODO allocate server monitors
 		// TODO allocate client and servers
