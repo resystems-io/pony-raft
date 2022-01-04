@@ -66,7 +66,8 @@ primitive ResetVolatile
 	Signaled when a raft server resets its volatile state.
 
 	- All timers are reset.
-	- All volatile state is cleared (including the state-machine).
+	- All volatile state is cleared
+	  - (including the state-machine).
 	"""
 	fun text():String val => "reset-volatile"
 primitive ResetPersistent
@@ -87,13 +88,13 @@ primitive ResetSnapshot
 	- All snapshot data is removed.
 	- Recovery depends fully on the data available from other replicas.
 	"""
-	fun text():String val => "reset-persistent"
+	fun text():String val => "reset-snapshot"
 
-type RaftReset is (ResetVolatile | ResetPersistent)
+type RaftReset is (ResetVolatile | ResetPersistent | ResetSnapshot)
 
 type RaftProcessing is (Paused | Resumed)
 
-type RaftControl is (RaftReset | RaftProcessing | ResetSnapshot)
+type RaftControl is (RaftReset | RaftProcessing)
 
 // -- trigger timeout logic
 
@@ -111,6 +112,13 @@ primitive HeartbeatTimeout
 	"""
 	Raised in a leader when it should publish heartbeats to its followers,
 	pottentially also appending log entries.
+	"""
+primitive StuckTimeout
+	"""
+	[Not a Raft Protocal Timeout] - raised when the leader failes to make progress.
+
+	Raised in a leader if the commit index is not progressed for too long after
+	the log being extended.
 	"""
 
 type RaftTimeout is (ElectionTimeout | HeartbeatTimeout | CanvasTimeout)
@@ -145,8 +153,14 @@ interface iso RaftServerMonitor[T: Any val]
 	fun ref command_res(id: NetworkAddress) => None
 
 	// -- follow internal state changes and timeouts
-	fun ref timeout_raised(timeout: RaftTimeout) => None
-	fun ref state_changed(mode: RaftMode, term: RaftTerm) => None
+	fun ref timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => None
+	fun ref mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+		"""
+		Raised when the server's Raft mode changes.
+
+		This can be one of follower, candiate or leader.
+		"""
+		None
 	fun ref append_accepted(id: NetworkAddress
 		, current_term: RaftTerm
 		, last_applied_index: RaftIndex
@@ -170,16 +184,27 @@ interface iso RaftServerMonitor[T: Any val]
 		last_index: the highest index seen by the replica, but not necessarily applied or committed.
 		"""
 		None
-	fun ref state_machine_update(id: NetworkAddress
-		, current_term: RaftTerm
-		, last_applied_index: RaftIndex
-		, commit_index: RaftIndex
-		, last_log_index: RaftIndex
+	fun ref control_raised(id: NetworkAddress, control: RaftControl) =>
+		"""
+		Raised when this replica's internal processing and control state is changed.
 
-		, update_log_index: RaftIndex // the index of the local log that is being applied to the state-machine
+		This can be a volatile reset, a persistent reset or a snapshot reset. Additionally,
+		this can be a pause or resume.
+		"""
+		None
+	fun ref state_change(id: NetworkAddress
+		, mode: RaftMode								// the operational mode of this server
+		, current_term: RaftTerm				// the current term in which the server is serving
+		, last_applied_index: RaftIndex	// the last index that was applied to the state machine
+		, commit_index: RaftIndex				// the last log index known to be committed in the cluster
+		, last_log_index: RaftIndex			// the last log entry held by the server
+
+		, update_log_index: RaftIndex		// the index of the local log that is now being applied to the state-machine
 		) =>
 		"""
 		Raised when the replica is publishing a log command to be processed by the state machine.
+
+		Note, `update_log_index` should always equal `(last_applied_index + 1)`.
 		"""
 			None
 
@@ -235,7 +260,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _monitor: RaftServerMonitor[T] iso
 	let _machine: StateMachine[T] iso					// implements the application logic
 
-	let persistent: PersistentServerState[T]	// holds the log
+	let persistent: PersistentServerState[T]	// holds the log which would be persisted to non-volatile storage
 	let volatile: VolatileServerState
 
 	var candidate: VolatileCandidateState
@@ -255,6 +280,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor[T] iso = NopRaftServerMonitor[T]
 		, initial_term: RaftTerm = 0 // really just for testing
+		// TODO we should be able to pass in an iso PersistentServerState (then we won't see an implicit persistent reset)
 		) =>
 
 		// seed the random number generator
@@ -305,6 +331,9 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	be control(ctls: Array[RaftControl] val) =>
 		"""
 		Perform any control operations listed.
+
+		We provide and array of control requests so that the composition
+		can be handled atomically.
 		"""
 		None
 
@@ -332,7 +361,6 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		| let s: CommandEnvelope[T] => _monitor.command_req(_id); _process_client_command(consume s) // note, no matching ResponseEnvelope
 
 		// raft coordindation singals
-		// TODO add calls to _monitor
 		| let s: VoteRequest							=> _monitor.vote_req(_id, s);			_process_vote_request(consume s)
 		| let s: VoteResponse							=> _monitor.vote_res(_id, s);			_process_vote_response(consume s)
 		| let s: AppendEntriesRequest[T]	=> _monitor.append_req(_id, s);		_process_append_entries_request(consume s)
@@ -343,7 +371,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	be raise(timeout: RaftTimeout) =>
 		// TODO consider just ignoring timeout signals that don't match the current mode
-		_monitor.timeout_raised(timeout)
+		_monitor.timeout_raised(_id, timeout)
 		match timeout
 		| (let t: ElectionTimeout)	=> _start_candidate()
 		| (let t: CanvasTimeout)		=> _start_election()
@@ -739,7 +767,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 	fun ref _set_mode(mode: RaftMode) =>
 		_mode = mode
-		_monitor.state_changed(_mode, persistent.current_term)
+		_monitor.mode_changed(_id, _mode, persistent.current_term)
 
 	fun ref _swash(lower: U64, upper: U64): U64 =>
 		// randomise the timeout between [150,300) ms

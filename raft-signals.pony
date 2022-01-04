@@ -53,6 +53,18 @@ class val CommandEnvelope[T: Any #send]
 	new val create(value: T) =>
 		this.command = consume value
 
+class val RaftRedirect[T: Any #send]
+	"""
+	A signal to inform the client that the message should be sent to
+	a different server.
+	"""
+	let leader_id: NetworkAddress
+	let command: T // the message that was sent, and should be redirected
+
+	new val create(id: NetworkAddress, value: T) =>
+		this.leader_id = id
+		this.command = consume value
+
 class val ResponseEnvelope[T: Any #send]
 	"""
 	An envelope to transport responses from the state machine back to a client raft.
@@ -210,6 +222,9 @@ class val InstallSnapshotRequest
 	var last_included_term: RaftTerm
 
 	// Flag set to true if this is the last chunk
+	// (Note, while the leader may send snapshot chunks in order, they may arrive out of order
+	//  and therefore care should be take to ensure that all chunks in range 0 -> last chunk
+	//  are applied. Once could consider replacing this with a full-snapshot checksum.)
 	var done: Bool
 
 	// Byte offset where the chunk is positioned in the snapshot file

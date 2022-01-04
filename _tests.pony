@@ -26,6 +26,7 @@ actor Main is TestList
 		WithoutTests.make().tests(test)
 		RaftPingPongTests.make().tests(test)
 		RaftServerTests.make().tests(test)
+		RaftCounterTests.make().tests(test)
 
 // -- demo
 
