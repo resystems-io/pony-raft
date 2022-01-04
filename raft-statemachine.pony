@@ -1,3 +1,16 @@
+// -- simple wiring
+
+interface tag NotificationEmitter[T: Any #send]
+	"""
+	Used by components to emit messages.
+
+	This might be used by a state-machine when it responds to commands,
+	or this might be used by clients when the generate commands.
+	"""
+	be apply(event: T) => None
+
+actor NopNotificationEmitter[T: Any #send] is NotificationEmitter[T]
+
 // -- parameterise the server
 
 interface SimpleStateMachine[T: Any #send]
@@ -5,6 +18,9 @@ interface SimpleStateMachine[T: Any #send]
 	A state machine manages the internal state transitions that are specific to the
 	application logic. A raft essentially drives the state machine once the event
 	messages are committed to the journal.
+
+	Note, the state machine is implemented as a class (not an actor). That is, it will
+	run within the concurrency context of the raft server.
 	"""
 
 	fun ref accept(command: T) => None

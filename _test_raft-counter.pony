@@ -15,11 +15,192 @@ actor RaftCounterTests is TestList
 		None
 
 	fun tag tests(test: PonyTest) =>
+		test(_TestSansRaft)
 		test(_TestSingleSourceNoFailures)
 		test(_TestMultipleSourcesNoFailures)
 		test(_TestOneRaftPauseResume)
 		test(_TestRaftResetVolatile)
 		test(_TestRaftResetPersistent)
+
+
+// -- a simple counter state machine
+
+primitive CounterAdd
+primitive CounterSub
+
+type CounterOp is (CounterAdd | CounterSub)
+
+class val CounterCommand
+	let opcode: CounterOp
+	let value: U32
+	new val create(op: CounterOp, v: U32) =>
+		opcode = op
+		value = v
+
+class val CounterTotal
+	let value: U32
+	new val create(v: U32) =>
+		value = v
+
+class CounterMachine is StateMachine[CounterCommand]
+	"""
+	The counter machine will add or subtrace values from
+	its running total.
+	"""
+
+	let _emitter: NotificationEmitter[CounterTotal]
+	var _total: U32
+
+	new create(emitter: NotificationEmitter[CounterTotal]) =>
+		_emitter = emitter
+		_total = 0
+
+	fun ref accept(cmd: CounterCommand) =>
+		match cmd.opcode
+		| CounterAdd => _total = _total + cmd.value
+		| CounterSub => _total = _total - cmd.value
+		end
+		_emitter(CounterTotal(_total))
+
+// -- counter client
+
+actor CounterClient
+
+	let _id: U32
+	let _h: TestHelper
+	let _emitter: NotificationEmitter[CounterCommand]
+
+	var _work: U32
+	var _last: Bool
+	var _sent: U32
+	var _ack: U32
+	var _last_total: U32
+	var _last_value: U32
+
+	var _started: Bool
+
+	new create(h: TestHelper, id: U32, emitter: NotificationEmitter[CounterCommand]) =>
+		_id = id
+		_h = h
+		_emitter = emitter
+
+		_work = 0
+		_last = false
+		_started = false
+		_sent = 0
+		_ack = 0
+		_last_total = 0
+		_last_value = 0
+
+	be work(amount: U32, last: Bool = false) =>
+		_h.env.out.print("client got work...")
+		if not _started then
+			_started = true
+			_h.complete_action("source-1:start")
+		end
+		if _last then
+			// ignore work added after the last call
+			return
+		end
+		_work = _work + amount
+		_last = last
+		_drain()
+
+	be _drain() =>
+		if _work <= 0 then
+			if _last and (_work == 0) then
+				_fin()
+			end
+			return
+		end
+		_work = _work - 1
+
+		// send a command
+		_emitter(CounterCommand(CounterAdd, 5))
+		_sent = _sent + 1
+
+		// consume tail...
+		_drain()
+
+	fun ref _fin() =>
+		let t1:String val = "source-" + _id.string() + ":end:sent=" + _sent.string()
+		let t2:String val = "source-" + _id.string() + ":end:ack=" + _ack.string()
+		_h.complete_action(t1)
+		_h.complete_action(t2)
+		_h.env.out.print("client fin " + t1 + " " + t2)
+
+	be apply(event: CounterTotal) =>
+		_h.env.out.print("client got total...")
+		_ack = _ack + 1
+
+// -- counter raft tests
+
+interface iso _Runnable
+	fun ref apply() => None
+
+class iso _NopRunnable is _Runnable
+
+class iso _TestSansRaft is UnitTest
+	"""
+	Creates a summation machine and runs it without raft.
+
+	This proves that the state machine does not need to be
+	specifically raft aware.
+	"""
+
+	let _timers: Timers
+
+	new iso create() =>
+		_timers = Timers
+
+	fun name(): String => "raft:counter:sans-raft"
+	fun label(): String => "end-to-end"
+
+	fun ref set_up(h: TestHelper) =>
+		None
+
+	fun ref tear_down(h: TestHelper) =>
+		None
+
+	fun ref apply(h: TestHelper) =>
+		h.long_test(1_000_000_000)
+		h.expect_action("source-1:start")
+		h.expect_action("source-1:end:sent=100")
+		h.expect_action("source-1:end:ack=100")
+
+		// emitter to reach the client
+		let sem = object tag
+				var _cl: (CounterClient | None) = None
+				be apply(command: CounterTotal) =>
+					h.env.out.print("sem got total...")
+					match _cl
+					| (let c: CounterClient) => c.apply(consume command)
+					end
+				be set(cl: CounterClient, runner: _Runnable = _NopRunnable) =>
+					_cl = cl
+					runner()
+			end
+
+		// allocate a state machine
+		let sm: CounterMachine iso^ = recover iso CounterMachine(sem) end
+		let cem: NotificationEmitter[CounterCommand] = object tag is NotificationEmitter[CounterCommand]
+				let _sm: CounterMachine iso = consume sm
+				be apply(command: CounterCommand) =>
+					h.env.out.print("cem got command...")
+					_sm.accept(command)
+			end
+
+		// allocate clients
+		let source0 = CounterClient(h, 1, NopNotificationEmitter[CounterCommand])
+		let source1 = CounterClient(h, 1, cem)
+
+		// link clients to the network
+		sem.set(source1, {() =>
+			// coordinate the work (after linking)
+			source1.work(50)
+			source1.work(50, true)
+		})
+
 
 class iso _TestSingleSourceNoFailures is UnitTest
 	"""
