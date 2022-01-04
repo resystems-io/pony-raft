@@ -48,11 +48,9 @@ class CounterMachine is StateMachine[CounterCommand,CounterTotal]
 	its running total.
 	"""
 
-	let _emitter: NotificationEmitter[CounterTotal]
 	var _total: U32
 
-	new create(emitter: NotificationEmitter[CounterTotal]) =>
-		_emitter = emitter
+	new create() =>
 		_total = 0
 
 	fun ref accept(cmd: CounterCommand):CounterTotal =>
@@ -60,7 +58,6 @@ class CounterMachine is StateMachine[CounterCommand,CounterTotal]
 		| CounterAdd => _total = _total + cmd.value
 		| CounterSub => _total = _total - cmd.value
 		end
-		_emitter(CounterTotal(_total))
 		CounterTotal(_total)
 
 // -- counter client
@@ -183,26 +180,30 @@ class iso _TestSansRaft is UnitTest
 		h.expect_action("source-1:end:sent=100")
 		h.expect_action("source-1:end:ack=100")
 
-		// emitter to reach the client
-		let sem = object tag
-				var _cl: (CounterClient | None) = None
-				be apply(command: CounterTotal) =>
-					// h.env.out.print("sem got total...")
-					match _cl
-					| (let c: CounterClient) => c.apply(consume command)
-					end
-				be set(cl: CounterClient, runner: _Runnable = _NopRunnable) =>
-					_cl = cl
-					runner()
-			end
-
-		// allocate a state machine
-		let sm: CounterMachine iso^ = recover iso CounterMachine(sem) end
-		let cem: NotificationEmitter[CounterCommand] = object tag is NotificationEmitter[CounterCommand]
+		// allocate a state machine and transit
+		let sm: CounterMachine iso^ = recover iso CounterMachine end
+		let cem = object tag
 				let _sm: CounterMachine iso = consume sm
+				var _cl: (CounterClient | None) = None
 				be apply(command: CounterCommand) =>
+					"""
+					Accept a command from the client and apply in the state-machine, routing the result back.
+					"""
 					// h.env.out.print("cem got command...")
-					_sm.accept(command)
+					// apply the command to the state-machine
+					let ct = _sm.accept(command)
+					// route the result back to the client
+					_emit(ct)
+				be configure(cl: CounterClient, ready: _Runnable = _NopRunnable) =>
+					"""
+					Define the route to the client.
+					"""
+					_cl = cl
+					ready()
+				fun _emit(ct: CounterTotal) =>
+					match _cl
+					| (let c: CounterClient) => c.apply(consume ct)
+					end
 			end
 
 		// allocate clients
@@ -210,7 +211,7 @@ class iso _TestSansRaft is UnitTest
 		let source1 = CounterClient(h, 1, cem)
 
 		// link clients to the network
-		sem.set(source1, {() =>
+		cem.configure(source1, {() =>
 			// coordinate the work (after linking)
 			source1.work(50)
 			source1.work(50, true)
