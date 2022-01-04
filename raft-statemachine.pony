@@ -13,7 +13,9 @@ actor NopNotificationEmitter[T: Any #send] is NotificationEmitter[T]
 
 // -- parameterise the server
 
-interface SimpleStateMachine[T: Any #send]
+primitive NopResponse
+
+interface SimpleStateMachine[T: Any #send, U: Any #send = NopResponse]
 	"""
 	A state machine manages the internal state transitions that are specific to the
 	application logic. A raft essentially drives the state machine once the event
@@ -21,9 +23,16 @@ interface SimpleStateMachine[T: Any #send]
 
 	Note, the state machine is implemented as a class (not an actor). That is, it will
 	run within the concurrency context of the raft server.
+
+	State machines must be deterministic. Therefore, given the same sequence of commands,
+	they must generate the exact same sequence of responses. However, a given command
+	may generate zero or more responses.
+
+	When a raft is _not_ a leader, it will simply squash any output from the
+	state-machine.
 	"""
 
-	fun ref accept(command: T) => None
+	fun ref accept(command: T): U
 
 interface SnapshotSupport
 	"""
@@ -48,4 +57,4 @@ interface SnapshotSupport
 		// we should probably consume some sort of seqeuence of (offset, Array[U8])
 		error
 
-type StateMachine[T: Any #send] is (SnapshotSupport & SimpleStateMachine[T])
+type StateMachine[T: Any #send, U: Any #send] is (SnapshotSupport & SimpleStateMachine[T,U])

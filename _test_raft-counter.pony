@@ -42,7 +42,7 @@ class val CounterTotal
 	new val create(v: U32) =>
 		value = v
 
-class CounterMachine is StateMachine[CounterCommand]
+class CounterMachine is StateMachine[CounterCommand,CounterTotal]
 	"""
 	The counter machine will add or subtrace values from
 	its running total.
@@ -55,12 +55,13 @@ class CounterMachine is StateMachine[CounterCommand]
 		_emitter = emitter
 		_total = 0
 
-	fun ref accept(cmd: CounterCommand) =>
+	fun ref accept(cmd: CounterCommand):CounterTotal =>
 		match cmd.opcode
 		| CounterAdd => _total = _total + cmd.value
 		| CounterSub => _total = _total - cmd.value
 		end
 		_emitter(CounterTotal(_total))
+		CounterTotal(_total)
 
 // -- counter client
 

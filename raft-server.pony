@@ -218,7 +218,7 @@ interface tag RaftRaisable
 
 // -- the server
 
-actor RaftServer[T: Any val] is RaftEndpoint[T]
+actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	"""
 	Each raft server runs concurrently and coordinates with the other servers in the raft.
@@ -258,7 +258,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 	let _peers: Array[NetworkAddress]					// other servers in the raft
 
 	let _monitor: RaftServerMonitor[T] iso
-	let _machine: StateMachine[T] iso					// implements the application logic
+	let _machine: StateMachine[T,U] iso					// implements the application logic
 
 	let persistent: PersistentServerState[T]	// holds the log which would be persisted to non-volatile storage
 	let volatile: VolatileServerState
@@ -276,7 +276,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 		, timers: Timers
 		, network: Transport[RaftSignal[T]]
 		, peers: Array[NetworkAddress] val
-		, machine: StateMachine[T] iso
+		, machine: StateMachine[T,U] iso
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor[T] iso = NopRaftServerMonitor[T]
 		, initial_term: RaftTerm = 0 // really just for testing
@@ -643,6 +643,7 @@ actor RaftServer[T: Any val] is RaftEndpoint[T]
 
 			_transport.unicast(p, consume append)
 		end
+		// note - we process the results asynchronously
 
 	fun box _peer_up_to_date(peer_last_log_term: RaftTerm, peer_last_log_index: RaftIndex): Bool =>
 		"""

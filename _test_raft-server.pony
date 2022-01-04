@@ -91,7 +91,7 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 		let mon: RaftServerMonitor[DummyCommand] iso = FollowerAppendMonitor[DummyCommand](h, mock_leader)
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](receiver_candidate_id
+		let replica = RaftServer[DummyCommand,DummyResponse](receiver_candidate_id
 			, _timers, net
 			, [as NetworkAddress: receiver_candidate_id; peer_one_id ]
 			, DummyMachine , DummyCommand.start()
@@ -219,7 +219,7 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		let mon: RaftServerMonitor[DummyCommand] iso = FollowerAppendMonitor[DummyCommand](h, mock_leader)
 
 		// create a follower (NB raft servers start as followers by default)
-		let replica = RaftServer[DummyCommand](follower_id
+		let replica = RaftServer[DummyCommand,DummyResponse](follower_id
 			, _timers, net
 			, [as NetworkAddress: follower_id; mock_leader_id ]
 			, DummyMachine, DummyCommand.start()
@@ -440,7 +440,7 @@ class iso _TestWaitForHeartbeats is UnitTest
 		let mon: RaftServerMonitor[DummyCommand] iso = LeaderRaftServerMonitor[DummyCommand](h)
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](receiver_candidate_id
+		let replica = RaftServer[DummyCommand,DummyResponse](receiver_candidate_id
 			, _timers, net
 			, [as NetworkAddress: receiver_candidate_id; peer_one_id; peer_two_id]
 			, DummyMachine, DummyCommand.start()
@@ -489,7 +489,7 @@ class iso _TestConvertToLeader is UnitTest
 		let mon: RaftServerMonitor[DummyCommand] iso = LeaderRaftServerMonitor[DummyCommand](h)
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](receiver_candidate_id
+		let replica = RaftServer[DummyCommand,DummyResponse](receiver_candidate_id
 			, _timers, net
 			, [as NetworkAddress: receiver_candidate_id; peer_one_id; peer_two_id]
 			, DummyMachine, DummyCommand.start()
@@ -636,7 +636,7 @@ class iso _TestConvertToFollower is UnitTest
 			end
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](receiver_candidate_id
+		let replica = RaftServer[DummyCommand,DummyResponse](receiver_candidate_id
 			, _timers, net
 			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id]
 			, DummyMachine, DummyCommand.start()
@@ -705,7 +705,7 @@ class iso _TestFailLowerTermAppend is UnitTest
 		let follower_term: RaftTerm = 5
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](receiver_follower_id
+		let replica = RaftServer[DummyCommand,DummyResponse](receiver_follower_id
 			, _timers, net
 			, [as NetworkAddress: receiver_follower_id; listener_leader_id]
 			, DummyMachine , DummyCommand.start()
@@ -795,7 +795,7 @@ class iso _TestWaitForCanvas is UnitTest
 			end
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](receiver_candidate_id
+		let replica = RaftServer[DummyCommand,DummyResponse](receiver_candidate_id
 			, _timers, net
 			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id]
 			, DummyMachine, DummyCommand.start()
@@ -853,7 +853,7 @@ class iso _TestConvertToCandidate is UnitTest
 			end
 
 		// register components that need to be shut down
-		let replica = RaftServer[DummyCommand](receiver_candidate_id
+		let replica = RaftServer[DummyCommand,DummyResponse](receiver_candidate_id
 			, _timers, net
 			, [as NetworkAddress: receiver_candidate_id; listener_candidate_id]
 			, DummyMachine, DummyCommand.start()
@@ -940,7 +940,7 @@ class iso _TestRequestVote is UnitTest
 			end
 
 		// register components that need to be shut down
-		let replica: RaftServer[DummyCommand] = RaftServer[DummyCommand](1
+		let replica: RaftServer[DummyCommand,DummyResponse] = RaftServer[DummyCommand,DummyResponse](1
 			, _timers, net, [as NetworkAddress: receiver_candidate_id; listener_candidate_id;3]
 			, DummyMachine, DummyCommand.start()
 				where monitor = consume mon)
@@ -966,8 +966,10 @@ primitive DummyCommand
 	fun val start(): DummyCommand =>
 		DummyCommand
 
-class iso DummyMachine is StateMachine[DummyCommand]
-	fun ref accept(command: DummyCommand) => None
+primitive DummyResponse
+
+class iso DummyMachine is StateMachine[DummyCommand, DummyResponse]
+	fun ref accept(command: DummyCommand): DummyResponse => DummyResponse
 
 class val EnvNetworkMonitor is NetworkMonitor
 
