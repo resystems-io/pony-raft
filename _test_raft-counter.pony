@@ -70,10 +70,12 @@ actor CounterClient
 	let _h: TestHelper
 	let _emitter: NotificationEmitter[CounterCommand]
 
-	var _work: U32
-	var _last: Bool
-	var _sent: U32
-	var _ack: U32
+	var _work: U32		// number of remaining commands to issue
+	var _expect: U32	// number of outstanding acks remaining
+	var _last: Bool		// true if we won't be getting more work
+	var _sent: U32		// number of commands sent
+	var _ack: U32			// number of acknowledgements received
+
 	var _last_total: U32
 	var _last_value: U32
 
@@ -85,15 +87,17 @@ actor CounterClient
 		_emitter = emitter
 
 		_work = 0
+		_expect = 0
 		_last = false
-		_started = false
 		_sent = 0
 		_ack = 0
+
 		_last_total = 0
 		_last_value = 0
+		_started = false
 
 	be work(amount: U32, last: Bool = false) =>
-		_h.env.out.print("client got work...")
+		// _h.env.out.print("client got work...")
 		if not _started then
 			_started = true
 			_h.complete_action("source-1:start")
@@ -103,14 +107,12 @@ actor CounterClient
 			return
 		end
 		_work = _work + amount
+		_expect = _expect + amount
 		_last = last
 		_drain()
 
 	be _drain() =>
 		if _work <= 0 then
-			if _last and (_work == 0) then
-				_fin()
-			end
 			return
 		end
 		_work = _work - 1
@@ -127,11 +129,13 @@ actor CounterClient
 		let t2:String val = "source-" + _id.string() + ":end:ack=" + _ack.string()
 		_h.complete_action(t1)
 		_h.complete_action(t2)
-		_h.env.out.print("client fin " + t1 + " " + t2)
+		// _h.env.out.print("client fin " + t1 + " " + t2)
 
 	be apply(event: CounterTotal) =>
-		_h.env.out.print("client got total...")
+		// _h.env.out.print("client got total...")
 		_ack = _ack + 1
+		_expect = _expect - 1
+		if _last and (_expect == 0) then _fin() end
 
 // -- counter raft tests
 
@@ -172,7 +176,7 @@ class iso _TestSansRaft is UnitTest
 		let sem = object tag
 				var _cl: (CounterClient | None) = None
 				be apply(command: CounterTotal) =>
-					h.env.out.print("sem got total...")
+					// h.env.out.print("sem got total...")
 					match _cl
 					| (let c: CounterClient) => c.apply(consume command)
 					end
@@ -186,7 +190,7 @@ class iso _TestSansRaft is UnitTest
 		let cem: NotificationEmitter[CounterCommand] = object tag is NotificationEmitter[CounterCommand]
 				let _sm: CounterMachine iso = consume sm
 				be apply(command: CounterCommand) =>
-					h.env.out.print("cem got command...")
+					// h.env.out.print("cem got command...")
 					_sm.accept(command)
 			end
 
