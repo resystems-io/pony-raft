@@ -154,20 +154,35 @@ interface iso RaftServerMonitor[T: Any val]
 	fun ref install_res(id: NetworkAddress, signal: InstallSnapshotResponse) => None
 
 	// -- follow client chatter
-	fun ref command_req(id: NetworkAddress) => None
-	fun ref command_res(id: NetworkAddress) => None
+	fun ref command_req(id: NetworkAddress
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+		) => None
+	fun ref command_res(id: NetworkAddress
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+		) => None
 
 	// -- follow internal state changes and timeouts
-	fun ref timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => None
-	fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
+	fun ref mode_changed(id: NetworkAddress
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+		) =>
 		"""
 		Raised when the server's Raft mode changes.
 
 		This can be one of follower, candiate or leader.
 		"""
 		None
+	fun ref timeout_raised(id: NetworkAddress
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+
+		, timeout: RaftTimeout) => None
 	fun ref append_accepted(id: NetworkAddress
-		, current_term: RaftTerm
+		, term: RaftTerm		// the current term
+		, mode: RaftMode		// the current mode
+
 		, last_applied_index: RaftIndex
 		, commit_index: RaftIndex
 		, last_log_index: RaftIndex
@@ -189,17 +204,10 @@ interface iso RaftServerMonitor[T: Any val]
 		last_index: the highest index seen by the replica, but not necessarily applied or committed.
 		"""
 		None
-	fun ref control_raised(id: NetworkAddress, control: RaftControl) =>
-		"""
-		Raised when this replica's internal processing and control state is changed.
-
-		This can be a volatile reset, a persistent reset or a snapshot reset. Additionally,
-		this can be a pause or resume.
-		"""
-		None
 	fun ref state_change(id: NetworkAddress
+		, term: RaftTerm								// the current term in which the server is serving
 		, mode: RaftMode								// the operational mode of this server
-		, current_term: RaftTerm				// the current term in which the server is serving
+
 		, last_applied_index: RaftIndex	// the last index that was applied to the state machine
 		, commit_index: RaftIndex				// the last log index known to be committed in the cluster
 		, last_log_index: RaftIndex			// the last log entry held by the server
@@ -212,6 +220,21 @@ interface iso RaftServerMonitor[T: Any val]
 		Note, `update_log_index` should always equal `(last_applied_index + 1)`.
 		"""
 			None
+
+	// -- follow configuration changes
+	fun ref control_raised(id: NetworkAddress
+		, term: RaftTerm		// the current term
+		, mode: RaftMode		// the current mode
+
+		, control: RaftControl
+		) =>
+		"""
+		Raised when this replica's internal processing and control state is explicitly changed.
+
+		This can be a volatile reset, a persistent reset or a snapshot reset. Additionally,
+		this can be a pause or resume.
+		"""
+		None
 
 trait iso RaftServerMonitorChain[T: Any val]
 	"""
@@ -247,24 +270,28 @@ trait iso RaftServerMonitorChain[T: Any val]
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.install_res(id, signal)
 		end
-	fun ref _chain_command_req(id: NetworkAddress) =>
+
+	fun ref _chain_command_req(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.command_req(id)
+			ch.command_req(id, term, mode)
 		end
-	fun ref _chain_command_res(id: NetworkAddress) =>
+	fun ref _chain_command_res(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.command_res(id)
+			ch.command_res(id, term, mode)
 		end
-	fun ref _chain_timeout_raised(id: NetworkAddress, timeout: RaftTimeout) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.timeout_raised(id, timeout)
-		end
+
 	fun ref _chain_mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.mode_changed(id, term, mode)
 		end
+	fun ref _chain_timeout_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.timeout_raised(id, term, mode, timeout)
+		end
 	fun ref _chain_append_accepted(id: NetworkAddress
-		, current_term: RaftTerm
+		, term: RaftTerm
+		, mode: RaftMode
+
 		, last_applied_index: RaftIndex
 		, commit_index: RaftIndex
 		, last_log_index: RaftIndex
@@ -279,19 +306,16 @@ trait iso RaftServerMonitorChain[T: Any val]
 		, applied: Bool
 		) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.append_accepted(id,
-					current_term, last_applied_index, commit_index, last_log_index
+			ch.append_accepted(id
+				, term, mode, last_applied_index, commit_index, last_log_index
 				, leader_term, leader_id, leader_commit_index, leader_prev_log_index, leader_prev_log_term, leader_entry_count
 				, applied
 			)
 		end
-	fun ref _chain_control_raised(id: NetworkAddress, control: RaftControl) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.control_raised(id, control)
-		end
 	fun ref _chain_state_change(id: NetworkAddress
+		, term: RaftTerm
 		, mode: RaftMode
-		, current_term: RaftTerm
+
 		, last_applied_index: RaftIndex
 		, commit_index: RaftIndex
 		, last_log_index: RaftIndex
@@ -299,9 +323,14 @@ trait iso RaftServerMonitorChain[T: Any val]
 		, update_log_index: RaftIndex
 		) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.state_change(id,
-				mode, current_term, last_applied_index, commit_index, last_log_index, update_log_index
+			ch.state_change(id
+				, term, mode, last_applied_index, commit_index, last_log_index, update_log_index
 			)
+		end
+
+	fun ref _chain_control_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.control_raised(id, term, mode, control)
 		end
 
 class iso NopRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
@@ -481,7 +510,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 		match consume signal
 		// signal from the client with a command
-		| let s: CommandEnvelope[T] => _monitor.command_req(_id); _process_client_command(consume s) // note, no matching ResponseEnvelope
+		| let s: CommandEnvelope[T] => _monitor.command_req(_id, _current_term(), _current_mode()); _process_client_command(consume s) // note, no matching ResponseEnvelope
 
 		// raft coordindation singals
 		| let s: VoteRequest							=> _monitor.vote_req(_id, s);			_process_vote_request(consume s)
@@ -494,7 +523,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	be raise(timeout: RaftTimeout) =>
 		// TODO consider just ignoring timeout signals that don't match the current mode
-		_monitor.timeout_raised(_id, timeout)
+		_monitor.timeout_raised(_id, _current_term(), _current_mode(), timeout)
 		match timeout
 		| (let t: ElectionTimeout)	=> _start_candidate()
 		| (let t: CanvasTimeout)		=> _start_election()
@@ -502,6 +531,25 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		end
 
 	// -- internals
+
+	// -- -- shortcuts
+
+	fun ref _last_log_index(): RaftIndex =>
+		let last_index: RaftIndex = persistent.log.size()-1
+		last_index
+
+	fun ref _commit_index(): RaftIndex =>
+		volatile.commit_index
+
+	fun ref _last_applied_index(): RaftIndex =>
+		volatile.last_applied
+
+	fun ref _current_term(): RaftTerm =>
+		persistent.current_term
+
+	fun ref _current_mode(): RaftMode =>
+		_mode
+
 
 	// -- -- client command
 
@@ -553,16 +601,6 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		end
 
   // -- -- apending
-
-	fun ref _last_log_index(): RaftIndex =>
-		let last_index: RaftIndex = persistent.log.size()-1
-		last_index
-
-	fun ref _commit_index(): RaftIndex =>
-			volatile.commit_index
-
-	fun ref _last_applied_index(): RaftIndex =>
-			volatile.last_applied
 
 	/*
 	 * See §5.3 Log Replication
@@ -719,7 +757,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 		_monitor.append_accepted(_id
 			where
-				current_term = persistent.current_term
+				term = _current_term()
+			, mode = _current_mode()
 			, last_applied_index = _last_applied_index()
 			, commit_index = _commit_index()
 			, last_log_index = _last_log_index()

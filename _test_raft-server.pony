@@ -354,7 +354,9 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 		end
 
 	fun ref append_accepted(id: NetworkAddress
-		, current_term: RaftTerm
+		, term: RaftTerm
+		, mode: RaftMode
+
 		, last_applied_index: RaftIndex
 		, commit_index: RaftIndex
 		, last_log_index: RaftIndex
@@ -371,7 +373,8 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 
 		_h.env.out.print("got append accept: " + applied.string()
 											+ " id: " + id.string()
-											+ " current_term: " + current_term.string()
+											+ " current_term: " + term.string()
+											+ " current_mode: " + mode.string()
 											+ " last_applied_index: " + last_applied_index.string()
 											+ " last_log_index: " + last_log_index.string()
 
@@ -387,7 +390,7 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 		let pass: String = if applied then "success" else "failure" end
 		let num: String val = Digits.number(_count_append)
 		let token: String = "got-append-" + pass + "-" + num + "-"
-													+ current_term.string() + ":" + last_log_index.string()
+													+ term.string() + ":" + last_log_index.string()
 
 		match (_count_append, applied)
 		| (1, true) =>
@@ -516,7 +519,7 @@ class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 		_seen_follower = false
 		_is_candidate = false
 
-	fun ref timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => None
+	fun ref timeout_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) => None
 
 	fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		match mode
@@ -617,7 +620,7 @@ class iso _TestConvertToFollower is UnitTest
 				let _h: TestHelper = h
 				var _seen_follower: Bool = false
 				var _is_candidate: Bool = false
-				fun ref timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => None
+				fun ref timeout_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) => None
 				fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 					match mode
 					| Follower =>
@@ -781,7 +784,7 @@ class iso _TestWaitForCanvas is UnitTest
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
 				let _h: TestHelper = h
-				fun box timeout_raised(id: NetworkAddress, timeout: RaftTimeout) =>
+				fun box timeout_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
 					match timeout
 					| (let t: ElectionTimeout) => _h.complete_action("got-election-timeout")
 					| (let t: CanvasTimeout) => _h.complete_action("got-canvas-timeout")
@@ -841,7 +844,7 @@ class iso _TestConvertToCandidate is UnitTest
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
 				let _h: TestHelper = h
-				fun box timeout_raised(id: NetworkAddress, timeout: RaftTimeout) =>
+				fun box timeout_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
 					if (timeout is ElectionTimeout) then
 						_h.complete_action("got-timeout")
 					end
@@ -932,10 +935,10 @@ class iso _TestRequestVote is UnitTest
 				fun box install_req(id: NetworkAddress, signal: InstallSnapshotRequest val) => _env.out.print("install req: " + id.string())
 				fun box install_res(id: NetworkAddress, signal: InstallSnapshotResponse val) => _env.out.print("install res: " + id.string())
 
-				fun box command_req(id: NetworkAddress) => _env.out.print("command req: " + id.string())
-				fun box command_res(id: NetworkAddress) => _env.out.print("command res: " + id.string())
+				fun box command_req(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => _env.out.print("command req: " + id.string())
+				fun box command_res(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => _env.out.print("command res: " + id.string())
 
-				fun box timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => _env.out.print("timeout raised")
+				fun box timeout_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) => _env.out.print("timeout raised")
 				fun box mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => _env.out.print("mode changed: " + mode.text() + " term:" + term.string())
 			end
 
