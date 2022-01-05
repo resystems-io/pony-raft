@@ -71,7 +71,7 @@ class CounterMachine is StateMachine[CounterCommand,CounterTotal]
 	new create() =>
 		_total = 0
 
-	fun ref accept(cmd: CounterCommand):CounterTotal =>
+	fun ref accept(cmd: CounterCommand):CounterTotal^ =>
 		match cmd.opcode
 		| CounterAdd => _total = _total + cmd.value
 		| CounterSub => _total = _total - cmd.value
@@ -337,7 +337,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 
 		// detect when the raft gets its first leader and kick off client test work
 		// (add this into the monitor chain)
-		// FIXME add to monitor chain
+		// (note, because we contrive raft-1 to be the leader, we only chain the first monitor)
 		let starter = object iso is RaftServerMonitor[CounterCommand]
 				fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => None
 					if (id == 1) and (term == 1) and (mode is Leader) then

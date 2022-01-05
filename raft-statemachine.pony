@@ -32,7 +32,7 @@ interface SimpleStateMachine[T: Any #send, U: Any #send = NopResponse]
 	state-machine.
 	"""
 
-	fun ref accept(command: T): U
+	fun ref accept(command: T): U^
 
 interface SnapshotSupport
 	"""
