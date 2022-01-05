@@ -51,6 +51,10 @@ class val CounterCommand
 		opcode = op
 		value = v
 
+primitive CounterCommands
+	fun val start(): CounterCommand =>
+		CounterCommand(CounterAdd, 0)
+
 class val CounterTotal
 	let value: U32
 	new val create(v: U32) =>
@@ -130,8 +134,14 @@ actor CounterClient
 		_drain()
 
 	be stop() =>
+		if _stopped then return end
 		if _debug(_DebugKey) then _h.env.out.print("client forced stop.") end
 		// force a stop
+		_fin()
+
+	be dispose() =>
+		if _stopped then return end
+		if _debug(_DebugKey) then _h.env.out.print("client stopped on dispose.") end
 		_fin()
 
 	be _drain() =>
@@ -283,7 +293,12 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		h.expect_action("raft-5:resumed:1")
 		h.expect_action("raft-5:resumed:1;client-messages-after-resume=true")
 
-		// TODO allocate server monitors
+		// allocate server monitors
+		let rmon1: RaftServerMonitor[CounterCommand] iso^ = NopRaftServerMonitor[CounterCommand]
+		let rmon2: RaftServerMonitor[CounterCommand] iso^ = NopRaftServerMonitor[CounterCommand]
+		let rmon3: RaftServerMonitor[CounterCommand] iso^ = NopRaftServerMonitor[CounterCommand]
+		let rmon4: RaftServerMonitor[CounterCommand] iso^ = NopRaftServerMonitor[CounterCommand]
+		let rmon5: RaftServerMonitor[CounterCommand] iso^ = NopRaftServerMonitor[CounterCommand]
 
 		// allocate state machines
 		let sm1: CounterMachine iso^ = recover iso CounterMachine end
@@ -292,20 +307,61 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let sm4: CounterMachine iso^ = recover iso CounterMachine end
 		let sm5: CounterMachine iso^ = recover iso CounterMachine end
 
-		// TODO rather link the sm to the raft server
-		let cem = object tag
-				let _sm: CounterMachine iso = consume sm1
-				be apply(command: CounterCommand) => None
+		// allocate a peer network
+		let netmon = EnvNetworkMonitor(h.env)
+		let net: Network[RaftSignal[CounterCommand]] =
+			IntraProcessNetwork[RaftSignal[CounterCommand]](netmon)
+		let peers: Array[NetworkAddress] val = [as NetworkAddress: 1;2;3;4;5]
+
+		// allocate raft servers
+		let raft1: RaftServer[CounterCommand,CounterTotal] =
+			RaftServer[CounterCommand,CounterTotal](1, _timers, net, peers,
+					consume sm1, CounterCommands.start() where monitor = consume rmon1)
+		let raft2: RaftServer[CounterCommand,CounterTotal] =
+			RaftServer[CounterCommand,CounterTotal](2, _timers, net, peers,
+					consume sm2, CounterCommands.start() where monitor = consume rmon2)
+		let raft3: RaftServer[CounterCommand,CounterTotal] =
+			RaftServer[CounterCommand,CounterTotal](3, _timers, net, peers,
+					consume sm3, CounterCommands.start() where monitor = consume rmon3)
+		let raft4: RaftServer[CounterCommand,CounterTotal] =
+			RaftServer[CounterCommand,CounterTotal](4, _timers, net, peers,
+					consume sm4, CounterCommands.start() where monitor = consume rmon4)
+		let raft5: RaftServer[CounterCommand,CounterTotal] =
+			RaftServer[CounterCommand,CounterTotal](5, _timers, net, peers,
+					consume sm5, CounterCommands.start() where monitor = consume rmon5)
+
+		// register replicas in thier network
+		// (TODO move to egress routing)
+		net.register(1, raft1)
+		net.register(2, raft2)
+		net.register(3, raft3)
+		net.register(4, raft4)
+		net.register(5, raft5)
+
+		// create a local raft proxy
+		// (this appears as a "direct state-machine" but actually delegates to the raft)
+		let cem1 = object tag
+				let _raft: RaftEndpoint[CounterCommand] tag = consume raft1
+				be apply(command: CounterCommand) =>
+					_raft(CommandEnvelope[CounterCommand](consume command))
 			end
 
 		// allocate a client
-		let source1 = CounterClient(h, 1, cem where debug = _DebugNoisy)
+		let source1 = CounterClient(h, 1, cem1 where debug = _DebugNoisy)
 
 		// drive the client
 		source1.work(50)
 		source1.work(50, true)
 		source1.stop() // note, we should rely on autostop...
 
+		// dispose components when the test completes
+		// (otherwise the test might detect the failure, but pony won't stop)
+		h.dispose_when_done(raft1)
+		h.dispose_when_done(raft2)
+		h.dispose_when_done(raft3)
+		h.dispose_when_done(raft4)
+		h.dispose_when_done(raft5)
+		h.dispose_when_done(source1)
 
 class iso _TestMultipleSourcesNoFailures is UnitTest
 	"""
