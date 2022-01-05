@@ -333,7 +333,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let sm4: CounterMachine iso^ = recover iso CounterMachine end
 		let sm5: CounterMachine iso^ = recover iso CounterMachine end
 
-		// allocate a peer network
+		// allocate a raft peer network
 		let netmon = EnvNetworkMonitor(h.env)
 		let net: Network[RaftSignal[CounterCommand]] =
 			IntraProcessNetwork[RaftSignal[CounterCommand]](netmon)
@@ -373,18 +373,43 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		// create a local raft proxy
 		// (this appears as a "direct state-machine" but actually delegates to the raft)
 		let cem1 = object tag
-				let _raft: RaftEndpoint[CounterCommand] tag = consume raft1
+				var _raft: (RaftEndpoint[CounterCommand] tag | None) = None
 				be apply(command: CounterCommand) =>
-					_raft(CommandEnvelope[CounterCommand](consume command))
+					match _raft
+					| (let r: RaftEndpoint[CounterCommand]) => r(CommandEnvelope[CounterCommand](consume command))
+					end
+				be configure(raft: RaftEndpoint[CounterCommand] tag, ready: _Runnable = _NopRunnable) =>
+					_raft = raft
+					ready()
 			end
+
+		// configure the client proxy
+		// (this must happen-before the client is starts;
+		//  and therefore before a leader is elected;
+		//  and therefore before the cluster starts)
+		cem1.configure(raft1, {() =>
+			// FIXME the rafts should start paused
+			// rafts start paused (this alleviates races when configuring new intraprocess clusters)
+			// TODO resume the rafts
+			None
+		})
+
 
 		// allocate a client
 		let source1 = CounterClient(h, 1, cem1 where debug = _DebugNoisy)
 
-		// drive the client (start once we detect a leader)
-		source1.work(50)
-		source1.work(50, true)
-		source1.stop() // note, we should rely on autostop...
+		// detect when the raft gets its first leader and kick off test work
+		let starter = object tag is RaftServerMonitor[CounterCommand]
+				fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => None
+					if (id == 1) and (term == 1) and (mode is Leader) then
+						if _DebugNoisy(_DebugKey) then h.env.out.print("leader detected, starting client") end
+						// drive the client (start once we detect a leader)
+						source1.work(50)
+						source1.work(50, true)
+					end
+			end
+
+		source1.stop() // FIXME note, we should rely on autostop...
 
 		// dispose components when the test completes
 		// (otherwise the test might detect the failure, but pony won't stop)

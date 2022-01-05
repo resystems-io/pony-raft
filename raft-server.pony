@@ -476,7 +476,11 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	// -- shutdown
 
-	be stop() =>
+
+	be dispose() => _stop()
+	be stop() => _stop()
+
+	fun ref _stop() =>
 		_clear_timer() // FIXME this is not necessary once the control calls work
 		control([as RaftControl: Paused; ResetVolatile])
 
@@ -840,6 +844,12 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			true
 		end
 
+	// -- mode processing initialisation
+
+	fun ref _set_mode(mode: RaftMode) =>
+		_mode = mode
+		_monitor.mode_changed(_id, persistent.current_term, _mode)
+
 	fun ref _start_follower(term: RaftTerm) =>
 		"""
 		Follower state:
@@ -851,14 +861,6 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		persistent.current_term = term
 		_set_mode(Follower)
 		_start_follower_timer()
-
-	fun ref _start_follower_timer() =>
-		// randomise the timeout between [150,300) ms
-		let swash = _swash(_lower_election_timeout, _upper_election_timeout)
-
-		// create a timer to become a candidate if no append-entries heart beat is received
-		let mt: Timer iso = Timer(_Timeout(this, ElectionTimeout), swash, _repeat_election_timeout)
-		_set_timer(consume mt)
 
 	fun ref _start_candidate() =>
 		"""
@@ -905,6 +907,37 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			_transport.unicast(p, consume canvas)
 		end
 
+		_start_candidate_timer()
+
+	fun ref _start_leader() =>
+		"""
+		Start working as a leader.
+
+		Triggered by:
+			- a majority vote in an election.
+		"""
+		leader = VolatileLeaderState
+		_set_mode(Leader)
+
+		_start_leader_timer()
+
+	// -- timer handling
+
+	fun ref _start_follower_timer() =>
+		"""
+		Start a timer as a follower i.e. an to raise ElectionTimeout
+		"""
+		// randomise the timeout between [150,300) ms
+		let swash = _swash(_lower_election_timeout, _upper_election_timeout)
+
+		// create a timer to become a candidate if no append-entries heart beat is received
+		let mt: Timer iso = Timer(_Timeout(this, ElectionTimeout), swash, _repeat_election_timeout)
+		_set_timer(consume mt)
+
+	fun ref _start_candidate_timer() =>
+		"""
+		Start a timer as a candidate i.e. an to raise CanvasTimeout
+		"""
 		// randomise the timeout between [150,300) ms
 		let swash = _swash(_lower_election_timeout, _upper_election_timeout)
 
@@ -912,10 +945,10 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		let mt: Timer iso = Timer(_Timeout(this, CanvasTimeout), swash, _repeat_election_timeout)
 		_set_timer(consume mt)
 
-	fun ref _start_leader() =>
-		leader = VolatileLeaderState
-		_set_mode(Leader)
-
+	fun ref _start_leader_timer() =>
+		"""
+		Start a timer as a candidate i.e. an to raise HeartbeatTimeout
+		"""
 		// set up timer to send out for append-entries heart beat
 		let mt: Timer iso = Timer(_Timeout(this, HeartbeatTimeout), 0, _hearbeat_timeout)
 		_set_timer(consume mt)
@@ -927,10 +960,6 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		_clear_timer()
 		_mode_timer = mt
 		_timers(consume mt)
-
-	fun ref _set_mode(mode: RaftMode) =>
-		_mode = mode
-		_monitor.mode_changed(_id, persistent.current_term, _mode)
 
 	fun ref _swash(lower: U64, upper: U64): U64 =>
 		// randomise the timeout between [150,300) ms
