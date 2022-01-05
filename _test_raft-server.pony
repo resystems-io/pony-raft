@@ -335,7 +335,7 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 		_seen_follower = false
 		_count_append = 0
 
-	fun ref mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+	fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		match mode
 		| Follower =>
 			_h.env.out.print("got state Follower for term " + term.string())
@@ -518,7 +518,7 @@ class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 
 	fun ref timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => None
 
-	fun ref mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+	fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		match mode
 		| Follower =>
 			_h.env.out.print("got state Follower for term " + term.string())
@@ -618,7 +618,7 @@ class iso _TestConvertToFollower is UnitTest
 				var _seen_follower: Bool = false
 				var _is_candidate: Bool = false
 				fun ref timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => None
-				fun ref mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+				fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 					match mode
 					| Follower =>
 						_h.env.out.print("got state Follower for term " + term.string())
@@ -786,7 +786,7 @@ class iso _TestWaitForCanvas is UnitTest
 					| (let t: ElectionTimeout) => _h.complete_action("got-election-timeout")
 					| (let t: CanvasTimeout) => _h.complete_action("got-canvas-timeout")
 					end
-				fun box mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+				fun box mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 					match mode
 					| (let m: Candidate) =>
 						_h.env.out.print("got state Candidate for term " + term.string())
@@ -845,7 +845,7 @@ class iso _TestConvertToCandidate is UnitTest
 					if (timeout is ElectionTimeout) then
 						_h.complete_action("got-timeout")
 					end
-				fun box mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+				fun box mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 					if (mode is Candidate) then
 						_h.env.out.print("got state Candidate for term " + term.string())
 						_h.complete_action("got-state")
@@ -936,7 +936,7 @@ class iso _TestRequestVote is UnitTest
 				fun box command_res(id: NetworkAddress) => _env.out.print("command res: " + id.string())
 
 				fun box timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => _env.out.print("timeout raised")
-				fun box mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) => _env.out.print("mode changed: " + mode.text() + " term:" + term.string())
+				fun box mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => _env.out.print("mode changed: " + mode.text() + " term:" + term.string())
 			end
 
 		// register components that need to be shut down

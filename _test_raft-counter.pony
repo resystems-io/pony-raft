@@ -195,11 +195,11 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 
 	fun ref _chain() : (RaftServerMonitor[CounterCommand] | None) => _chain_link
 
-	fun ref mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+	fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
 		if _debug(_DebugKey) then _h.env.out.print(t) end
 		_h.complete_action(t)
-		_chain_mode_changed(id, mode, term)
+		_chain_mode_changed(id, term, mode)
 
 // -- counter raft tests
 
@@ -688,7 +688,7 @@ class iso _TestRaftResetPersistent is UnitTest
 	new iso create() =>
 		_timers = Timers
 
-	fun name(): String => "raft:counter:reset-persisten"
+	fun name(): String => "raft:counter:reset-persistent"
 	fun label(): String => "end-to-end"
 
 	fun ref set_up(h: TestHelper) =>

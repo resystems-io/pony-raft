@@ -159,7 +159,7 @@ interface iso RaftServerMonitor[T: Any val]
 
 	// -- follow internal state changes and timeouts
 	fun ref timeout_raised(id: NetworkAddress, timeout: RaftTimeout) => None
-	fun ref mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+	fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		"""
 		Raised when the server's Raft mode changes.
 
@@ -259,9 +259,9 @@ trait iso RaftServerMonitorChain[T: Any val]
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.timeout_raised(id, timeout)
 		end
-	fun ref _chain_mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+	fun ref _chain_mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.mode_changed(id, mode, term)
+			ch.mode_changed(id, term, mode)
 		end
 	fun ref _chain_append_accepted(id: NetworkAddress
 		, current_term: RaftTerm
@@ -891,7 +891,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	fun ref _set_mode(mode: RaftMode) =>
 		_mode = mode
-		_monitor.mode_changed(_id, _mode, persistent.current_term)
+		_monitor.mode_changed(_id, persistent.current_term, _mode)
 
 	fun ref _swash(lower: U64, upper: U64): U64 =>
 		// randomise the timeout between [150,300) ms
