@@ -275,7 +275,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		None
 
 	fun ref apply(h: TestHelper) =>
-		h.long_test(1_000_000_000)
+		h.long_test(3_000_000_000)
 
 		// set expectations (halting-condition)
 		h.expect_action("source-1:start")
@@ -314,21 +314,27 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let peers: Array[NetworkAddress] val = [as NetworkAddress: 1;2;3;4;5]
 
 		// allocate raft servers
+		let initial_delay: U64 = 400_000_000 // 0.4 seconds
 		let raft1: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](1, _timers, net, peers,
-					consume sm1, CounterCommands.start() where monitor = consume rmon1)
+					consume sm1, CounterCommands.start()
+					where monitor = consume rmon1, initial_candidate_delay = 0) // we give raft1 a head start
 		let raft2: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](2, _timers, net, peers,
-					consume sm2, CounterCommands.start() where monitor = consume rmon2)
+					consume sm2, CounterCommands.start()
+					where monitor = consume rmon2, initial_candidate_delay = initial_delay)
 		let raft3: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](3, _timers, net, peers,
-					consume sm3, CounterCommands.start() where monitor = consume rmon3)
+					consume sm3, CounterCommands.start()
+					where monitor = consume rmon3, initial_candidate_delay = initial_delay)
 		let raft4: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](4, _timers, net, peers,
-					consume sm4, CounterCommands.start() where monitor = consume rmon4)
+					consume sm4, CounterCommands.start()
+					where monitor = consume rmon4, initial_candidate_delay = initial_delay)
 		let raft5: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](5, _timers, net, peers,
-					consume sm5, CounterCommands.start() where monitor = consume rmon5)
+					consume sm5, CounterCommands.start()
+					where monitor = consume rmon5, initial_candidate_delay = initial_delay)
 
 		// register replicas in thier network
 		// (TODO move to egress routing)
@@ -349,7 +355,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		// allocate a client
 		let source1 = CounterClient(h, 1, cem1 where debug = _DebugNoisy)
 
-		// drive the client
+		// drive the client (start once we detect a leader)
 		source1.work(50)
 		source1.work(50, true)
 		source1.stop() // note, we should rely on autostop...

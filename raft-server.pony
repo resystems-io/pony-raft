@@ -218,6 +218,17 @@ interface tag RaftRaisable
 
 // -- the server
 
+primitive RaftTimeoutDefaults
+	fun one_second(): U64								=> 1_000_000_000 // 1000 ms
+	fun one_millisecond(): U64					=>     1_000_000 // 1 ms
+	fun one_microsecond(): U64					=>         1_000 // 1 µs
+	fun one_nanosecond(): U64						=>             1 // 1 ns
+	// -- defaults
+	fun lower_election_timeout(): U64		=>   150_000_000 // 150 ms
+	fun upper_election_timeout(): U64		=>   300_000_000 // 300 ms
+	fun repeat_election_timeout(): U64	=>   200_000_000 // 300 ms
+	fun hearbeat_timeout(): U64					=>    75_000_000 // 75 ms
+
 actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	"""
@@ -238,16 +249,16 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	state machine).
 	"""
 
-	let _lower_election_timeout: U64	= 150_000_000 // 150 ms
-	let _upper_election_timeout: U64	= 300_000_000 // 300 ms
-	let _repeat_election_timeout: U64	= 200_000_000 // 300 ms
+	var _lower_election_timeout: U64
+	var _upper_election_timeout: U64
+	var _repeat_election_timeout: U64
 
 	/*
 		§9.3 "The leader was crashed uniformly randomly within
 		its heartbeat interval, which was half of the minimum
 		election timeout for all tests."
 	*/
-	let _hearbeat_timeout: U64 = 75_000_000 // 75 ms
+	var _hearbeat_timeout: U64 = 75_000_000 // 75 ms
 
 	let _rand: Random
 	let _timers: Timers
@@ -280,6 +291,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor[T] iso = NopRaftServerMonitor[T]
 		, initial_term: RaftTerm = 0 // really just for testing
+		, initial_candidate_delay: (U64|None) = None // normally we just get started...
 		// TODO we should be able to pass in an iso PersistentServerState (then we won't see an implicit persistent reset)
 		) =>
 
@@ -289,6 +301,10 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 		// time keeping
 		_timers = timers
+		_lower_election_timeout = RaftTimeoutDefaults.lower_election_timeout()
+		_upper_election_timeout = RaftTimeoutDefaults.upper_election_timeout()
+		_repeat_election_timeout = RaftTimeoutDefaults.repeat_election_timeout()
+		_hearbeat_timeout = RaftTimeoutDefaults.hearbeat_timeout()
 
 		// instrumentation
 		_monitor = consume monitor
@@ -310,17 +326,28 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		volatile = VolatileServerState
 		candidate = VolatileCandidateState
 		leader = None
+		_mode_timer = Timer(object iso is TimerNotify end, 1, 1_000_000_000) // just a nop to seed the state
 
+		// start as a follower (but become a candidate soon)
 		_lastKnownLeader = 0
 		_mode = Follower
-		_mode_timer = Timer(object iso is TimerNotify end, 1, 1) // will expire soon
 		persistent.current_term = initial_term
 
 		// signal resume
 		// TODO
 
 		// start in follower mode
+		// .. override the initial timeouts
+		(let was_lower, let was_upper) = match initial_candidate_delay
+		| None => (0,0)
+		| (let idelay:U64) => (_lower_election_timeout = idelay, _upper_election_timeout = idelay)
+		end
 		_start_follower(initial_term)
+		if initial_candidate_delay isnt None then
+			// .. reset overrides
+			_lower_election_timeout = was_lower
+			_upper_election_timeout = was_upper
+		end
 
 	// -- shutdown
 
