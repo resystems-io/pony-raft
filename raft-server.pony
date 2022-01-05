@@ -178,7 +178,14 @@ interface iso RaftServerMonitor[T: Any val]
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 
-		, timeout: RaftTimeout) => None
+		, timeout: RaftTimeout
+		) =>
+		"""
+		Raised when a mode timer trips.
+
+		i.e. to change from follower to candidate, to re-run an election or to send a heartbeat.
+		"""
+		None
 	fun ref append_accepted(id: NetworkAddress
 		, term: RaftTerm		// the current term
 		, mode: RaftMode		// the current mode
@@ -219,7 +226,7 @@ interface iso RaftServerMonitor[T: Any val]
 
 		Note, `update_log_index` should always equal `(last_applied_index + 1)`.
 		"""
-			None
+		None
 
 	// -- follow configuration changes
 	fun ref control_raised(id: NetworkAddress
@@ -404,7 +411,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	var _mode: RaftMode
 	var _mode_timer: Timer tag
-	var _lastKnownLeader: NetworkAddress
+	var _last_known_leader: NetworkAddress
 
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
@@ -454,7 +461,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		_mode_timer = Timer(object iso is TimerNotify end, 1, 1_000_000_000) // just a nop to seed the state
 
 		// start as a follower (but become a candidate soon)
-		_lastKnownLeader = 0
+		_last_known_leader = 0
 		_mode = Follower
 		persistent.current_term = initial_term
 
