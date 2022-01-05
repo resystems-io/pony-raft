@@ -344,23 +344,23 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let raft1: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](1, _timers, net, peers,
 					consume sm1, CounterCommands.start()
-					where monitor = consume rmon1, initial_candidate_delay = 0) // we give raft1 a head start
+					where monitor = consume rmon1, resume_delay = 0) // we give raft1 a head start
 		let raft2: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](2, _timers, net, peers,
 					consume sm2, CounterCommands.start()
-					where monitor = consume rmon2, initial_candidate_delay = initial_delay)
+					where monitor = consume rmon2, resume_delay = initial_delay)
 		let raft3: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](3, _timers, net, peers,
 					consume sm3, CounterCommands.start()
-					where monitor = consume rmon3, initial_candidate_delay = initial_delay)
+					where monitor = consume rmon3, resume_delay = initial_delay)
 		let raft4: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](4, _timers, net, peers,
 					consume sm4, CounterCommands.start()
-					where monitor = consume rmon4, initial_candidate_delay = initial_delay)
+					where monitor = consume rmon4, resume_delay = initial_delay)
 		let raft5: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](5, _timers, net, peers,
 					consume sm5, CounterCommands.start()
-					where monitor = consume rmon5, initial_candidate_delay = initial_delay)
+					where monitor = consume rmon5, resume_delay = initial_delay)
 
 		// register replicas in thier network
 		// (TODO move to egress routing)
@@ -388,7 +388,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		//  and therefore before a leader is elected;
 		//  and therefore before the cluster starts)
 		cem1.configure(raft1, {() =>
-			// FIXME the rafts should start paused
+			// FIXME the raft servers should start paused
 			// rafts start paused (this alleviates races when configuring new intraprocess clusters)
 			// TODO resume the rafts
 			None
@@ -398,8 +398,9 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		// allocate a client
 		let source1 = CounterClient(h, 1, cem1 where debug = _DebugNoisy)
 
-		// detect when the raft gets its first leader and kick off test work
-		let starter = object tag is RaftServerMonitor[CounterCommand]
+		// detect when the raft gets its first leader and kick off client test work
+		// (add this into the monitor chain)
+		let starter = object iso is RaftServerMonitor[CounterCommand]
 				fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => None
 					if (id == 1) and (term == 1) and (mode is Leader) then
 						if _DebugNoisy(_DebugKey) then h.env.out.print("leader detected, starting client") end
@@ -409,7 +410,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 					end
 			end
 
-		source1.stop() // FIXME note, we should rely on autostop...
+		source1.stop() // FIXME remove: note, we should rely on autostop...
 
 		// dispose components when the test completes
 		// (otherwise the test might detect the failure, but pony won't stop)

@@ -414,6 +414,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	var _last_known_leader: NetworkAddress
 
 	var _processing: RaftProcessing
+	let _resume_delay: (U64 | None) // an initial delay added to timers when the raft resumes
 
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
@@ -426,7 +427,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		, monitor: RaftServerMonitor[T] iso = NopRaftServerMonitor[T]
 
 		, initial_term: RaftTerm = 0 // really just for testing
-		, initial_candidate_delay: (U64|None) = None // normally we just get started...
+		, resume_delay: (U64|None) = None // normally we just get started (modulo the stanadard swash)...
 		, initial_processsing: RaftProcessing = Resumed // FIXME change the default to paused
 		// TODO we should be able to pass in an iso PersistentServerState (then we won't see an implicit persistent reset)
 		) =>
@@ -475,23 +476,13 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// set the processing to paused for sanity
 		// (see below for bootstrap via initial_processing)
 		_processing = Paused
+		_resume_delay = resume_delay
 
 		// begin in follower mode
 		_initialise_follower(initial_term)
 
 		// start timers if needed (depending on processing control)
-		// .. override the initial timeouts
-		(let was_lower, let was_upper) = match initial_candidate_delay
-		| None => (0,0)
-		| (let idelay:U64) => (_lower_election_timeout = idelay, _upper_election_timeout = idelay)
-		end
 		_control([as RaftControl: initial_processsing])
-		// .. reset overrides
-		// (note, the initial delays will only apply if the raft is constructed in the Resumed processing state)
-		if initial_candidate_delay isnt None then
-			_lower_election_timeout = was_lower
-			_upper_election_timeout = was_upper
-		end
 
 	// -- control
 
@@ -534,7 +525,22 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	fun ref _control_resume() =>
 		_processing = Resumed
+		// .. override the initial timeouts relative to the resume delay, if set
+		(let was_lower, let was_upper) = match _resume_delay
+		| None => (0,0)
+		| (let idelay:U64) =>
+			(
+				_lower_election_timeout = _lower_election_timeout + idelay,
+				_upper_election_timeout = _upper_election_timeout + idelay
+			)
+		end
 		_start_timer()
+		// .. reset overrides
+		// (note, the initial delays will only apply if the raft is constructed in the Resumed processing state)
+		if _resume_delay isnt None then
+			_lower_election_timeout = was_lower
+			_upper_election_timeout = was_upper
+		end
 
 	// -- processing
 
