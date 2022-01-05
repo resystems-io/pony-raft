@@ -413,6 +413,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	var _mode_timer: Timer tag
 	var _last_known_leader: NetworkAddress
 
+	var _processing: RaftProcessing
+
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
 	new create(id: NetworkAddress
@@ -422,8 +424,10 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		, machine: StateMachine[T,U] iso
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor[T] iso = NopRaftServerMonitor[T]
+
 		, initial_term: RaftTerm = 0 // really just for testing
 		, initial_candidate_delay: (U64|None) = None // normally we just get started...
+		, initial_processsing: RaftProcessing = Resumed // FIXME change the default to paused
 		// TODO we should be able to pass in an iso PersistentServerState (then we won't see an implicit persistent reset)
 		) =>
 
@@ -463,33 +467,36 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// start as a follower (but become a candidate soon)
 		_last_known_leader = 0
 		_mode = Follower
+
+		// initialise the persistent state
+		// TODO we will need to be able to pass in the persistent state
 		persistent.current_term = initial_term
 
-		// signal resume
-		// TODO
+		// set the processing to paused for sanity
+		// (see below for bootstrap via initial_processing)
+		_processing = Paused
 
-		// start in follower mode
+		// begin in follower mode
+		_initialise_follower(initial_term)
+
+		// start timers if needed (depending on processing control)
 		// .. override the initial timeouts
 		(let was_lower, let was_upper) = match initial_candidate_delay
 		| None => (0,0)
 		| (let idelay:U64) => (_lower_election_timeout = idelay, _upper_election_timeout = idelay)
 		end
-		_start_follower(initial_term)
+		_control([as RaftControl: initial_processsing])
+		// .. reset overrides
+		// (note, the initial delays will only apply if the raft is constructed in the Resumed processing state)
 		if initial_candidate_delay isnt None then
-			// .. reset overrides
 			_lower_election_timeout = was_lower
 			_upper_election_timeout = was_upper
 		end
 
-	// -- shutdown
+	// -- control
 
-
-	be dispose() => _stop()
+	be dispose() => _stop() // an alias for DisposableActor
 	be stop() => _stop()
-
-	fun ref _stop() =>
-		_clear_timer() // FIXME this is not necessary once the control calls work
-		control([as RaftControl: Paused; ResetVolatile])
 
 	be control(ctls: Array[RaftControl] val) =>
 		"""
@@ -498,19 +505,61 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		We provide and array of control requests so that the composition
 		can be handled atomically.
 		"""
+		_control(ctls)
+
+	fun ref _control(ctls: Array[RaftControl] val) =>
+		for ctl in ctls.values() do
+			match ctl
+			| Paused => _control_pause()
+			| Resumed => _control_resume()
+			else
+				_control_oops()
+			end
+			_monitor.control_raised(_id, _current_term(), _current_mode(), ctl)
+		end
+
+	fun ref _stop() =>
+		_clear_timer() // FIXME this is not necessary once the control calls work
+		control([as RaftControl: Paused; ResetVolatile])
+
+	fun ref _control_oops() =>
+		// FIXME - implement other controls
 		None
+
+	fun ref _control_pause() =>
+		_processing = Paused
+		// note, we clear the timers... so now the server won't perform any of its own actions
+		// additionally, note we do not change any other state, but elsewhere in the cluster things may time out.
+		_clear_timer()
+
+	fun ref _control_resume() =>
+		_processing = Resumed
+		_start_timer()
 
 	// -- processing
 
+	be raise(timeout: RaftTimeout) =>
+		if _processing is Paused then return end // simply ignore... we're paused
+		// TODO consider just ignoring timeout signals that don't match the current mode
+		_monitor.timeout_raised(_id, _current_term(), _current_mode(), timeout)
+		match timeout
+		| (let t: ElectionTimeout)	=> _start_candidate()
+		| (let t: CanvasTimeout)		=> _start_election()
+		| (let t: HeartbeatTimeout)	=> _emit_heartbeat()
+		end
+
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
+		if _processing is Paused then return end // simply ignore... we're paused
 		match signal
-		| (let s: RaftServerSignal[T]) => absorb(s)
+		| (let s: RaftServerSignal[T]) => _absorb(s)
 		else
 			// TODO if not fixed at compile time then hook in a monitor call with a warning
 			None // ignore non-server signals
 		end
 
-	fun ref absorb(signal: RaftServerSignal[T]) =>
+	// -- internals
+
+	fun ref _absorb(signal: RaftServerSignal[T]) =>
 		// if any RPC has a larger 'term' then convert to and continue as a follower (§5.1)
 		match signal
 		| (let ht: HasTerm) =>
@@ -531,17 +580,6 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		| let s: InstallSnapshotRequest		=> _monitor.install_req(_id, s);	_process_install_snapshot_request(consume s)
 		| let s: InstallSnapshotResponse	=> _monitor.install_res(_id, s);	_process_install_snapshot_response(consume s)
 		end
-
-	be raise(timeout: RaftTimeout) =>
-		// TODO consider just ignoring timeout signals that don't match the current mode
-		_monitor.timeout_raised(_id, _current_term(), _current_mode(), timeout)
-		match timeout
-		| (let t: ElectionTimeout)	=> _start_candidate()
-		| (let t: CanvasTimeout)		=> _start_election()
-		| (let t: HeartbeatTimeout)	=> _emit_heartbeat()
-		end
-
-	// -- internals
 
 	// -- -- shortcuts
 
@@ -745,16 +783,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// now update the state machine if need be
 		_apply_logs_to_state_machine()
 
-	fun ref _apply_logs_to_state_machine() =>
-		"""
-		Update the state machine by applying logs from after 'last_applied' up to and including
-		'commit_index'. However, only the leader can reply to the client.
-		"""
-		// TODO _machine.accept(...)
-		None
-
 	fun ref _emit_append_res(appendreq: AppendEntriesRequest[T], success: Bool) =>
-		// notify the leader
+		// notify the leader or our decision for the append request
 		let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
 		reply.term = persistent.current_term
 		reply.success = success
@@ -784,19 +814,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			, applied = msg.success
 		)
 
-
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
 		// TODO it seems like these results can be handled asynchronously relative to the append req
-		None
-
-	// -- -- snapshots
-
-	fun ref _process_install_snapshot_request(snapshotreq: InstallSnapshotRequest) =>
-		// TODO
-		None
-
-	fun ref _process_install_snapshot_response(snapshotres: InstallSnapshotResponse) =>
-		// TODO
 		None
 
 	// -- -- consensus module
@@ -851,6 +870,26 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			true
 		end
 
+	// -- -- state-machine update
+
+	fun ref _apply_logs_to_state_machine() =>
+		"""
+		Update the state machine by applying logs from after 'last_applied' up to and including
+		'commit_index'. However, only the leader can reply to the client.
+		"""
+		// TODO _machine.accept(...)
+		None
+
+	// -- -- snapshots
+
+	fun ref _process_install_snapshot_request(snapshotreq: InstallSnapshotRequest) =>
+		// TODO
+		None
+
+	fun ref _process_install_snapshot_response(snapshotres: InstallSnapshotResponse) =>
+		// TODO
+		None
+
 	// -- mode processing initialisation
 
 	fun ref _set_mode(mode: RaftMode) =>
@@ -864,10 +903,16 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		The follower will honour heartbeats and log updates, but will also set a timer to potentially
 		start its own election.
 		"""
+		_initialise_follower(term)
+		_start_follower_timer()
+
+	fun ref _initialise_follower(term: RaftTerm) =>
+		"""
+		Set the state to follower, but don't start any timers.
+		"""
 		leader = None // clear any potential leader state
 		persistent.current_term = term
 		_set_mode(Follower)
-		_start_follower_timer()
 
 	fun ref _start_candidate() =>
 		"""
@@ -930,6 +975,18 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	// -- timer handling
 
+	fun ref _start_timer() =>
+		"""
+		Start a timer based on the current server mode.
+
+		(Generally used for `resume()`.)
+		"""
+		match _mode
+		| Leader => _start_leader_timer()
+		| Candidate => _start_candidate_timer()
+		| Follower => _start_follower_timer()
+		end
+
 	fun ref _start_follower_timer() =>
 		"""
 		Start a timer as a follower i.e. an to raise ElectionTimeout
@@ -960,13 +1017,13 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		let mt: Timer iso = Timer(_Timeout(this, HeartbeatTimeout), 0, _hearbeat_timeout)
 		_set_timer(consume mt)
 
-	fun ref _clear_timer() =>
-		_timers.cancel(_mode_timer) // cancel any previous timers before recording a new one
-
 	fun ref _set_timer(mt: Timer iso) =>
 		_clear_timer()
 		_mode_timer = mt
 		_timers(consume mt)
+
+	fun ref _clear_timer() =>
+		_timers.cancel(_mode_timer) // cancel any previous timers before recording a new one
 
 	fun ref _swash(lower: U64, upper: U64): U64 =>
 		// randomise the timeout between [150,300) ms
