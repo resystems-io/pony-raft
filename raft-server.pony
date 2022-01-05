@@ -32,11 +32,16 @@ use "time"
 
 // -- keep track of server mode
 
-primitive Follower
+
+trait _TextCopier
+	fun text(): String val
+	fun string(): String iso^ => text().clone()
+
+primitive Follower is _TextCopier
 	fun text():String val => "follower"
-primitive Candidate
+primitive Candidate is _TextCopier
 	fun text():String val => "candidate"
-primitive Leader
+primitive Leader is _TextCopier
 	fun text():String val => "leader"
 
 type RaftMode is (Follower | Candidate | Leader)
