@@ -19,11 +19,11 @@ type RaftServerSignal[T: Any val] is (
 	| CommandEnvelope[T] val
 )
 
-type RaftClientSignal[T: Any val] is (
-	ResponseEnvelope[T] val
+type RaftClientSignal[U: Any val] is (
+	ResponseEnvelope[U] val
 )
 
-type RaftSignal[T: Any val] is (
+type RaftSignal[T: Any val] is ( // FIXME actually need a U here for the reponse type
 	  RaftServerSignal[T] val
 	| RaftClientSignal[T] val
 )
@@ -65,16 +65,19 @@ class val RaftRedirect[T: Any #send]
 		this.leader_id = id
 		this.command = consume value
 
-class val ResponseEnvelope[T: Any #send]
+class val ResponseEnvelope[U: Any #send]
 	"""
 	An envelope to transport responses from the state machine back to a client raft.
 	"""
 
-	let response: T
+	let response: U
 	// TODO consider carrying the backpressure or dropped status (if known)
 	//      When dropped, the 'response' would be the original command
+	//
+	// TODO we might need a separate ResponseLeaderMoved[T] that includes the
+	//      original request, so that it can be redirected.
 
-	new val create(value: T) =>
+	new val create(value: U) =>
 		this.response = consume value
 
 // -- votes
