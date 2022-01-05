@@ -182,19 +182,24 @@ actor CounterClient
 
 // -- raft monitoring
 
-class iso _CounterRaftMonitor is RaftServerMonitor[CounterCommand]
+class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServerMonitorChain[CounterCommand])
 
 	let _h: TestHelper
 	let _debug: _Debug
+	let _chain_link: (RaftServerMonitor[CounterCommand] | None)
 
-	new iso create(h: TestHelper, debug: _Debug = _DebugOff) =>
+	new iso create(h: TestHelper, chain: (RaftServerMonitor[CounterCommand] | None) = None, debug: _Debug = _DebugOff) =>
 		_h = h
 		_debug = debug
+		_chain_link = consume chain
+
+	fun ref _chain() : (RaftServerMonitor[CounterCommand] | None) => _chain_link
 
 	fun ref mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
 		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
 		if _debug(_DebugKey) then _h.env.out.print(t) end
 		_h.complete_action(t)
+		_chain_mode_changed(id, mode, term)
 
 // -- counter raft tests
 
@@ -315,11 +320,11 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		h.expect_action("raft-5:resumed:1;client-messages-after-resume=true")
 
 		// allocate server monitors
-		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h, _DebugNoisy)
-		let rmon2: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h, _DebugNoisy)
-		let rmon3: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h, _DebugNoisy)
-		let rmon4: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h, _DebugNoisy)
-		let rmon5: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h, _DebugNoisy)
+		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
+		let rmon2: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
+		let rmon3: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
+		let rmon4: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
+		let rmon5: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
 
 		// allocate state machines
 		let sm1: CounterMachine iso^ = recover iso CounterMachine end

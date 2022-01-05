@@ -213,6 +213,97 @@ interface iso RaftServerMonitor[T: Any val]
 		"""
 			None
 
+trait iso RaftServerMonitorChain[T: Any val]
+	"""
+	The monitor chain trait can be added in order to chain monitors together.
+
+	This does not provide automatic chaining, but it simplifies the process
+	by delegating calls if a chain link exists (i.e. is non-None)
+	"""
+
+	fun ref _chain() : (RaftServerMonitor[T] | None)
+
+	fun ref _chain_vote_req(id: NetworkAddress, signal: VoteRequest val) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.vote_req(id, signal)
+		end
+	fun ref _chain_vote_res(id: NetworkAddress, signal: VoteResponse) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.vote_res(id, signal)
+		end
+	fun ref _chain_append_req(id: NetworkAddress, signal: AppendEntriesRequest[T] val) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.append_req(id, consume signal)
+		end
+	fun ref _chain_append_res(id: NetworkAddress, signal: AppendEntriesResult) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.append_res(id, signal)
+		end
+	fun ref _chain_install_req(id: NetworkAddress, signal: InstallSnapshotRequest val) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.install_req(id, signal)
+		end
+	fun ref _chain_install_res(id: NetworkAddress, signal: InstallSnapshotResponse) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.install_res(id, signal)
+		end
+	fun ref _chain_command_req(id: NetworkAddress) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.command_req(id)
+		end
+	fun ref _chain_command_res(id: NetworkAddress) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.command_res(id)
+		end
+	fun ref _chain_timeout_raised(id: NetworkAddress, timeout: RaftTimeout) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.timeout_raised(id, timeout)
+		end
+	fun ref _chain_mode_changed(id: NetworkAddress, mode: RaftMode, term: RaftTerm) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.mode_changed(id, mode, term)
+		end
+	fun ref _chain_append_accepted(id: NetworkAddress
+		, current_term: RaftTerm
+		, last_applied_index: RaftIndex
+		, commit_index: RaftIndex
+		, last_log_index: RaftIndex
+
+		, leader_term: RaftTerm
+		, leader_id: NetworkAddress
+		, leader_commit_index: RaftIndex
+		, leader_prev_log_index: RaftIndex
+		, leader_prev_log_term: RaftTerm
+		, leader_entry_count: USize
+
+		, applied: Bool
+		) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.append_accepted(id,
+					current_term, last_applied_index, commit_index, last_log_index
+				, leader_term, leader_id, leader_commit_index, leader_prev_log_index, leader_prev_log_term, leader_entry_count
+				, applied
+			)
+		end
+	fun ref _chain_control_raised(id: NetworkAddress, control: RaftControl) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.control_raised(id, control)
+		end
+	fun ref _chain_state_change(id: NetworkAddress
+		, mode: RaftMode
+		, current_term: RaftTerm
+		, last_applied_index: RaftIndex
+		, commit_index: RaftIndex
+		, last_log_index: RaftIndex
+
+		, update_log_index: RaftIndex
+		) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.state_change(id,
+				mode, current_term, last_applied_index, commit_index, last_log_index, update_log_index
+			)
+		end
+
 class iso NopRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 
 interface tag RaftRaisable
