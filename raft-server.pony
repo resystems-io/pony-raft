@@ -613,7 +613,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
-		// TODO
+		// TODO it seems like these results can be handled asynchronously relative to the append req
 		None
 
 	// -- -- snapshots

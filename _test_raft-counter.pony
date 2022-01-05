@@ -22,6 +22,20 @@ actor RaftCounterTests is TestList
 		test(_TestRaftResetVolatile)
 		test(_TestRaftResetPersistent)
 
+// -- debugging levels
+
+trait _DebugActive
+	fun level(): U16
+	fun apply(d: _Debug): Bool => level() >= d.level()
+
+primitive _DebugOff is _DebugActive
+	fun level(): U16 => 0
+primitive _DebugKey is _DebugActive
+	fun level(): U16 => 10
+primitive _DebugNoisy is _DebugActive
+	fun level(): U16 => 100
+
+type _Debug is (_DebugOff | _DebugKey | _DebugNoisy)
 
 // -- a simple counter state machine
 
@@ -74,12 +88,17 @@ actor CounterClient
 	var _sent: U32		// number of commands sent
 	var _ack: U32			// number of acknowledgements received
 
+	var _ack_timeouts: U32	// number of missed acknowledgements
+
 	var _started: Bool
 	var _stopped: Bool
 
+	let _debug: _Debug
+
 	// TODO introduce correlation tokens or correlation state in order to check monotinicity
 
-	new create(h: TestHelper, id: U32, emitter: NotificationEmitter[CounterCommand]) =>
+	new create(h: TestHelper, id: U32, emitter: NotificationEmitter[CounterCommand], debug: _Debug = _DebugOff) =>
+		_debug = debug
 		_id = id
 		_h = h
 		_emitter = emitter
@@ -90,11 +109,13 @@ actor CounterClient
 		_sent = 0
 		_ack = 0
 
+		_ack_timeouts = 0
+
 		_started = false
 		_stopped = false
 
 	be work(amount: U32, last: Bool = false) =>
-		// _h.env.out.print("client got work...")
+		if _debug(_DebugKey) then _h.env.out.print("client got work...") end
 		if not _started then
 			_started = true
 			_h.complete_action("source-1:start")
@@ -109,6 +130,7 @@ actor CounterClient
 		_drain()
 
 	be stop() =>
+		if _debug(_DebugKey) then _h.env.out.print("client forced stop.") end
 		// force a stop
 		_fin()
 
@@ -121,6 +143,7 @@ actor CounterClient
 		// send a command
 		_emitter(CounterCommand(CounterAdd, 5))
 		_sent = _sent + 1
+		if _debug(_DebugNoisy) then _h.env.out.print("client sending count command: " + _sent.string()) end
 
 		// consume tail...
 		_drain()
@@ -130,17 +153,19 @@ actor CounterClient
 			_stopped = true
 			let t1:String val = "source-" + _id.string() + ":end:sent=" + _sent.string()
 			let t2:String val = "source-" + _id.string() + ":end:ack=" + _ack.string()
+			let t3:String val = "source-" + _id.string() + ":end:timeouts=" + (not (_ack_timeouts == 0)).string()
 			_h.complete_action(t1)
 			_h.complete_action(t2)
-			// _h.env.out.print("client fin " + t1 + " " + t2)
+			_h.complete_action(t3)
+			if _debug(_DebugKey) then _h.env.out.print("client fin " + t1 + " " + t2 + " " + t3) end
 		end
 
 	be apply(event: CounterTotal) =>
 		if _stopped then
-			// _h.env.out.print("client got late total...")
+			if _debug(_DebugKey) then _h.env.out.print("client got late total...") end
 			return
 		end
-		// _h.env.out.print("client got total...")
+		if _debug(_DebugNoisy) then _h.env.out.print("client got total...") end
 		_ack = _ack + 1
 		_expect = _expect - 1
 		if _last and (_expect == 0) then _fin() end
@@ -241,24 +266,46 @@ class iso _TestSingleSourceNoFailures is UnitTest
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
+
+		// set expectations (halting-condition)
 		h.expect_action("source-1:start")
 		h.expect_action("source-1:end:sent=100")
 		h.expect_action("source-1:end:ack=100")
 		h.expect_action("source-1:end:timeouts=false")
 		h.expect_action("raft-1:resumed:1")
 		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
-		h.expect_action("raft-1:resumed:2")
-		h.expect_action("raft-1:resumed:2;client-messages-after-resume=true")
-		h.expect_action("raft-1:resumed:3")
-		h.expect_action("raft-1:resumed:3;client-messages-after-resume=true")
-		h.expect_action("raft-1:resumed:4")
-		h.expect_action("raft-1:resumed:4;client-messages-after-resume=true")
-		h.expect_action("raft-1:resumed:5")
-		h.expect_action("raft-1:resumed:5;client-messages-after-resume=true")
+		h.expect_action("raft-2:resumed:1")
+		h.expect_action("raft-2:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-3:resumed:1")
+		h.expect_action("raft-3:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-4:resumed:1")
+		h.expect_action("raft-4:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-5:resumed:1")
+		h.expect_action("raft-5:resumed:1;client-messages-after-resume=true")
 
 		// TODO allocate server monitors
-		// TODO allocate client and servers
-		h.fail_action("not-yet-implemented")
+
+		// allocate state machines
+		let sm1: CounterMachine iso^ = recover iso CounterMachine end
+		let sm2: CounterMachine iso^ = recover iso CounterMachine end
+		let sm3: CounterMachine iso^ = recover iso CounterMachine end
+		let sm4: CounterMachine iso^ = recover iso CounterMachine end
+		let sm5: CounterMachine iso^ = recover iso CounterMachine end
+
+		// TODO rather link the sm to the raft server
+		let cem = object tag
+				let _sm: CounterMachine iso = consume sm1
+				be apply(command: CounterCommand) => None
+			end
+
+		// allocate a client
+		let source1 = CounterClient(h, 1, cem where debug = _DebugNoisy)
+
+		// drive the client
+		source1.work(50)
+		source1.work(50, true)
+		source1.stop() // note, we should rely on autostop...
+
 
 class iso _TestMultipleSourcesNoFailures is UnitTest
 	"""
