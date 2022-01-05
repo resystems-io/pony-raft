@@ -428,7 +428,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 		, initial_term: RaftTerm = 0 // really just for testing
 		, resume_delay: (U64|None) = None // normally we just get started (modulo the stanadard swash)...
-		, initial_processsing: RaftProcessing = Resumed // FIXME change the default to paused
+		, initial_processing: RaftProcessing = Resumed // FIXME change the default to paused
 		// TODO we should be able to pass in an iso PersistentServerState (then we won't see an implicit persistent reset)
 		) =>
 
@@ -482,12 +482,15 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		_initialise_follower(initial_term)
 
 		// start timers if needed (depending on processing control)
-		_control([as RaftControl: initial_processsing])
+		_control([as RaftControl: initial_processing])
 
 	// -- control
 
 	be dispose() => _stop() // an alias for DisposableActor
 	be stop() => _stop()
+
+	be ctrl(one_ctrl: RaftControl) =>
+		_control([as RaftControl: one_ctrl])
 
 	be control(ctls: Array[RaftControl] val) =>
 		"""
@@ -510,8 +513,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		end
 
 	fun ref _stop() =>
-		_clear_timer() // FIXME this is not necessary once the control calls work
-		control([as RaftControl: Paused; ResetVolatile])
+		_control([as RaftControl: Paused; ResetVolatile])
 
 	fun ref _control_oops() =>
 		// FIXME - implement other controls

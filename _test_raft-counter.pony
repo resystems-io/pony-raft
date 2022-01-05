@@ -319,8 +319,37 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		h.expect_action("raft-5:resumed:1")
 		h.expect_action("raft-5:resumed:1;client-messages-after-resume=true")
 
+		// create a local raft proxy
+		// (this appears as a "direct state-machine" but actually delegates to the raft)
+		let cem1 = object tag
+				var _raft: (RaftEndpoint[CounterCommand] tag | None) = None
+				be apply(command: CounterCommand) =>
+					match _raft
+					| (let r: RaftEndpoint[CounterCommand]) => r(CommandEnvelope[CounterCommand](consume command))
+					end
+				be configure(raft: RaftEndpoint[CounterCommand] tag, ready: _Runnable = _NopRunnable) =>
+					_raft = raft
+					ready()
+			end
+
+		// allocate a client
+		let source1 = CounterClient(h, 1, cem1 where debug = _DebugNoisy)
+
+		// detect when the raft gets its first leader and kick off client test work
+		// (add this into the monitor chain)
+		// FIXME add to monitor chain
+		let starter = object iso is RaftServerMonitor[CounterCommand]
+				fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => None
+					if (id == 1) and (term == 1) and (mode is Leader) then
+						if _DebugNoisy(_DebugKey) then h.env.out.print("leader detected, starting client") end
+						// drive the client (start once we detect a leader)
+						source1.work(50)
+						source1.work(50, true)
+					end
+			end
+
 		// allocate server monitors
-		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
+		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy, chain = consume starter)
 		let rmon2: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
 		let rmon3: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
 		let rmon4: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
@@ -344,23 +373,23 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let raft1: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](1, _timers, net, peers,
 					consume sm1, CounterCommands.start()
-					where monitor = consume rmon1, resume_delay = 0) // we give raft1 a head start
+					where monitor = consume rmon1, initial_processing = Paused, resume_delay = 0) // we give raft1 a head start
 		let raft2: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](2, _timers, net, peers,
 					consume sm2, CounterCommands.start()
-					where monitor = consume rmon2, resume_delay = initial_delay)
+					where monitor = consume rmon2, initial_processing = Paused, resume_delay = initial_delay)
 		let raft3: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](3, _timers, net, peers,
 					consume sm3, CounterCommands.start()
-					where monitor = consume rmon3, resume_delay = initial_delay)
+					where monitor = consume rmon3, initial_processing = Paused, resume_delay = initial_delay)
 		let raft4: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](4, _timers, net, peers,
 					consume sm4, CounterCommands.start()
-					where monitor = consume rmon4, resume_delay = initial_delay)
+					where monitor = consume rmon4, initial_processing = Paused, resume_delay = initial_delay)
 		let raft5: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](5, _timers, net, peers,
 					consume sm5, CounterCommands.start()
-					where monitor = consume rmon5, resume_delay = initial_delay)
+					where monitor = consume rmon5, initial_processing = Paused, resume_delay = initial_delay)
 
 		// register replicas in thier network
 		// (TODO move to egress routing)
@@ -370,47 +399,21 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		net.register(4, raft4)
 		net.register(5, raft5)
 
-		// create a local raft proxy
-		// (this appears as a "direct state-machine" but actually delegates to the raft)
-		let cem1 = object tag
-				var _raft: (RaftEndpoint[CounterCommand] tag | None) = None
-				be apply(command: CounterCommand) =>
-					match _raft
-					| (let r: RaftEndpoint[CounterCommand]) => r(CommandEnvelope[CounterCommand](consume command))
-					end
-				be configure(raft: RaftEndpoint[CounterCommand] tag, ready: _Runnable = _NopRunnable) =>
-					_raft = raft
-					ready()
-			end
-
 		// configure the client proxy
 		// (this must happen-before the client is starts;
 		//  and therefore before a leader is elected;
 		//  and therefore before the cluster starts)
 		cem1.configure(raft1, {() =>
-			// FIXME the raft servers should start paused
 			// rafts start paused (this alleviates races when configuring new intraprocess clusters)
-			// TODO resume the rafts
-			None
+			// resume the rafts
+			raft1.ctrl(Resumed)
+			raft2.ctrl(Resumed)
+			raft3.ctrl(Resumed)
+			raft4.ctrl(Resumed)
+			raft5.ctrl(Resumed)
 		})
 
-
-		// allocate a client
-		let source1 = CounterClient(h, 1, cem1 where debug = _DebugNoisy)
-
-		// detect when the raft gets its first leader and kick off client test work
-		// (add this into the monitor chain)
-		let starter = object iso is RaftServerMonitor[CounterCommand]
-				fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => None
-					if (id == 1) and (term == 1) and (mode is Leader) then
-						if _DebugNoisy(_DebugKey) then h.env.out.print("leader detected, starting client") end
-						// drive the client (start once we detect a leader)
-						source1.work(50)
-						source1.work(50, true)
-					end
-			end
-
-		source1.stop() // FIXME remove: note, we should rely on autostop...
+		// source1.stop() // FIXME remove: note, we should rely on autostop...
 
 		// dispose components when the test completes
 		// (otherwise the test might detect the failure, but pony won't stop)
