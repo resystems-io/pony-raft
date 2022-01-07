@@ -880,10 +880,9 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 				// update next and match
 				if (appendres.success) then
 					// if successful: update nextIndex and matchIndex for the follower (§5.3)
-					// FIXME check: let new_next: RaftIndex = appendres.prev_log_index + 1
 					let new_next: RaftIndex = appendres.prev_log_index + appendres.entries_count + 1
-					ls.next_index(p)? = new_next // FIXME this might not be right
-					ls.match_index(p)? = new_next // FIXME this might not be right
+					ls.next_index(p)? = new_next
+					ls.match_index(p)? = new_next
 				else
 					// if AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)
 					ls.next_index(p)? = ls.next_index(p)? - 1
@@ -962,11 +961,11 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		Note, we will flood the system if we send out updates (appends) to a given
 		peer when we haven't yet received a response.
 		"""
-		_apply_logs_to_state_machine()
 		if _mode is Leader then
+			_leader_check_follower_lag() // try replicating as soon as possible
 			_leader_check_for_majority()
-			_leader_check_follower_lag() // FIXME generating too many appends
 		end
+		_apply_logs_to_state_machine()
 
 	fun ref _leader_check_for_majority() =>
 		"""
@@ -998,7 +997,6 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 					let ni: RaftIndex = ls.next_index(pi)?
 					let tm: U64 = ls.last_millis(pi)?
 					// note - we stop the stampede using a timestamp per peer
-					// FIXME - it still seems like we are sending updates when we shouldn't...
 					if (lli >= ni) and ((now - tm) > _hearbeat_timeout) then
 						// send append entries to this peer (starting with entries at next-index)
 						// [ decide how many entries to send e.g. from ni with a max of 100, see: _max_append_batch ]
