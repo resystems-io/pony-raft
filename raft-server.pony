@@ -410,7 +410,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	let persistent: PersistentServerState[T]	// holds the log which would be persisted to non-volatile storage
 	let volatile: VolatileServerState
 
-	var candidate: VolatileCandidateState
+	var candidate: VolatileCandidateState // TODO should initalise to None and clear when becoming a follower or a leader
 	var leader: (VolatileLeaderState | None)
 
 	var _mode: RaftMode
@@ -559,6 +559,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		| (let t: CanvasTimeout)		=> _start_election()
 		| (let t: HeartbeatTimeout)	=> _emit_heartbeat()
 		end
+		_sync() // drive our async updates
 
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
 		if _processing is Paused then return end // simply ignore... we're paused
@@ -568,6 +569,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			// TODO if not fixed at compile time then hook in a monitor call with a warning
 			None // ignore non-server signals
 		end
+		_sync() // drive our async updates
 
 	// -- internals
 
@@ -704,6 +706,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 		if convert_to_follower then
 			// convert to a follower and continue to process the signal
+			// (note, this also sets the follower timer)
 			_start_follower(appendreq.term)
 		end
 
@@ -773,7 +776,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		end
 
 		// if .leader_commit > commit_index,
-		// set commit_index = min(.leader_commit, index of last new entry)
+		//   set commit_index = min(.leader_commit, index of last new entry)
 		if (appendreq.leader_commit > volatile.commit_index) then
 			// TODO review calculation of 'last_new_one'
 			let last_new_one: USize = appendreq.prev_log_index + appendreq.entries.size()
@@ -783,7 +786,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
 		if not convert_to_follower then
 			// no need to do this if we already converted to a follower (since that resets the timers)
-			// but now we still want to reset the timers
+			// but now we still want to reset the timers since we were already a follower
 			_start_follower_timer()
 		end
 
@@ -827,7 +830,10 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		)
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
-		// TODO it seems like these results can be handled asynchronously relative to the append req
+		"""
+		"""
+		// _leader_check_follower_lag() causes non-heartbeat appends to be sent
+		// it seems like these results can be handled asynchronously relative to the append req
 		None
 
 	// -- -- consensus module
@@ -883,6 +889,40 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		end
 
 	// -- -- state-machine update
+
+	fun ref _sync() =>
+		"""
+		Perform various asynchronous updates in order to attempt to align logs.
+
+		That is, we have the invariant: last_applied <= commit_index <= last_index.
+		But we want to drive this to be equal if possible.
+		"""
+		_apply_logs_to_state_machine()
+		if _mode is Leader then
+			_leader_check_for_majority()
+			_leader_check_follower_lag()
+		end
+
+	fun ref _leader_check_for_majority() =>
+		None
+
+	fun ref _leader_check_follower_lag() =>
+		"""
+		Check if any follower's next-index is lagging this leader's last-log-index.
+		"""
+		// TODO consider various optimisations:
+		// 			- we don't need to send heartbeats if we sent a non-trivial append.
+		// 					However, this implies tracking heartbeat timeouts per peer.
+		// 			- we can batch/boxcar our appends rather than sending a log fragment
+		// 					with only one entry.
+		// the responses are handled via _process_append_entries_result()
+		let lli: RaftIndex = _last_log_index()
+		match leader
+		| (let ls: VolatileLeaderState) =>
+			for p in ls.next_index.values() do
+				None
+			end
+		end
 
 	fun ref _apply_logs_to_state_machine() =>
 		"""
@@ -956,7 +996,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// new term, reinitialise the vote register and vote for self
 		persistent.current_term = persistent.current_term + 1
 		persistent.voted_for = _id
-		candidate = VolatileCandidateState
+		candidate = VolatileCandidateState // reset the candidate state
 		candidate.vote()
 		// send vote requests to other replicas (in parallel)
 		for p in _peers.values() do
@@ -980,9 +1020,17 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		Triggered by:
 			- a majority vote in an election.
 		"""
-		leader = VolatileLeaderState
+		// initialise next-index and match-index (keyed by the position of in _peers)
+		// .. next-index initialised to last-log-index + 1
+		// .. match-index initialised to 0
+		let vl: VolatileLeaderState = VolatileLeaderState(_peers.size())
+		let lli_plus_one: RaftIndex = _last_log_index() + 1
+		for p in _peers.values() do
+			vl.next_index.push(lli_plus_one)
+			vl.match_index.push(0)
+		end
+		leader = vl
 		_set_mode(Leader)
-
 		_start_leader_timer()
 
 	// -- timer handling
@@ -1084,7 +1132,9 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 			, appended = true
 		)
-		// TODO wait for commit before responding to the client
+		// Note, _sync() will drive our asynchronous udpates and a side-effect will
+		// eventually trigger a response to the client once the entry is committed and
+		// applied.
 
 class _Timeout is TimerNotify
 	""" A common timeout handler that will raise a signal back with the replica. """

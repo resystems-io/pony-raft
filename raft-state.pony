@@ -93,6 +93,6 @@ class ref VolatileLeaderState
 	//  only the leader responds to the client.)
 	var match_index: Array[RaftIndex]
 
-	new create() =>
-		next_index = Array[RaftIndex](0)
-		match_index = Array[RaftIndex](0)
+	new create(size: USize) =>
+		next_index = Array[RaftIndex](size)
+		match_index = Array[RaftIndex](size)
