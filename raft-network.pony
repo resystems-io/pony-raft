@@ -25,6 +25,9 @@ actor NopEndpoint[T: Any #send] is Endpoint[T]
 	be apply(msg: T) => None
 	be stop() => None
 
+primitive NetworkAddresses
+	fun val unknown(): NetworkAddress => 0
+
 type NetworkAddress is U16
 	"""
 	An address to identify processes attached to the network.

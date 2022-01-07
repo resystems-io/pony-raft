@@ -166,13 +166,13 @@ class val AppendEntriesRequest[T: Any val]
 	// (https://tutorial.ponylang.io/reference-capabilities/combining-capabilities.html)
 	embed entries: Array[Log[T] val] iso
 
-	new create() =>
+	new create(size: USize = 0) =>
 		term = 0
 		prev_log_index = 0
 		prev_log_term = 0
 		leader_commit = 0
-		leader_id = 0
-		entries = recover iso Array[Log[T] val](0) end
+		leader_id = NetworkAddresses.unknown()
+		entries = recover iso Array[Log[T] val](size) end
 
 	fun val signal_term(): RaftTerm =>
 		term
@@ -185,9 +185,17 @@ class val AppendEntriesResult
 	// True if the follower contained the entry matching prev_log_index and prev_log_term
 	var success: Bool
 
+	// -- include enough state for asynchronous handling of the resposne
+
+	// carry over previous log index in the request (this allows matching replies when they are asynchronous)
+	var prev_log_index: RaftIndex
+	var peer_id: NetworkAddress
+
 	new create() =>
 		term = 0
 		success = false
+		prev_log_index = 0
+		peer_id = NetworkAddresses.unknown()
 
 	fun val signal_term(): RaftTerm =>
 		term

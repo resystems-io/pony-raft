@@ -149,6 +149,13 @@ interface iso RaftServerMonitor[T: Any val]
 	This will be informed of processing steps made by the raft server.
 	"""
 
+	// -- a general warning from a server... (shouldn't happen)
+	fun ref warning(id: NetworkAddress
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+		, msg: String val
+		) => None
+
 	// -- follow incoming chatter that is recevied by a server
 	fun ref vote_req(id: NetworkAddress, signal: VoteRequest val) => None
 	fun ref vote_res(id: NetworkAddress, signal: VoteResponse) => None
@@ -256,6 +263,15 @@ trait iso RaftServerMonitorChain[T: Any val]
 	"""
 
 	fun ref _chain() : (RaftServerMonitor[T] | None)
+
+	fun ref _chain_warning(id: NetworkAddress
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+		, msg: String val
+		) =>
+		match _chain() | (let ch: RaftServerMonitor[T]) =>
+			ch.warning(id, term, mode, msg)
+		end
 
 	fun ref _chain_vote_req(id: NetworkAddress, signal: VoteRequest val) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
@@ -396,6 +412,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	*/
 	var _hearbeat_timeout: U64 = 75_000_000 // 75 ms
 
+	let _max_append_batch: USize = 1000 // maximum append-entries boxcar length
+
 	let _rand: Random
 	let _timers: Timers
 
@@ -511,7 +529,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			| Paused => _control_pause()
 			| Resumed => _control_resume()
 			else
-				_control_oops()
+				_control_oops(ctl)
 			end
 			_monitor.control_raised(_id, _current_term(), _current_mode(), ctl)
 		end
@@ -519,9 +537,9 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	fun ref _stop() =>
 		_control([as RaftControl: Paused; ResetVolatile])
 
-	fun ref _control_oops() =>
+	fun ref _control_oops(c: RaftControl) =>
 		// FIXME - implement other controls
-		None
+		_monitor.warning(_id, _current_term(), _current_mode(), "control not yet implemented: " + c.text())
 
 	fun ref _control_pause() =>
 		_processing = Paused
@@ -567,7 +585,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		| (let s: RaftServerSignal[T]) => _absorb(s)
 		else
 			// TODO if not fixed at compile time then hook in a monitor call with a warning
-			None // ignore non-server signals
+			// ignore non-server signals
+			_monitor.warning(_id, _current_term(), _current_mode(), "non-server signal")
 		end
 		_sync() // drive our async updates
 
@@ -710,7 +729,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			_start_follower(appendreq.term)
 		end
 
-		// decide if this request should be honoured (we might be ahead in a new term)
+		// decide if this request should be honoured
+		// (we might be ahead of the leader and in a new term)
 		if (appendreq.term < persistent.current_term) then
 			_emit_append_res(appendreq, false)
 			return
@@ -754,7 +774,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 					let al: Log[T] val = appendreq.entries(off)?
 					let rl: Log[T] val = persistent.log(idx)?
 					if (al.term == rl.term) then
-						idx = idx + 1
+						idx = idx + 1 // move forward to check the next entry
 					else
 						// conflict detected drop the remainder from the follower's log
 						persistent.log.truncate(idx)
@@ -768,11 +788,11 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// (at this point there should be no conflicting entries, so we can just append)
 		// (we compute the overlap relative to the shared 'prev_log_index')
 		// (note persistent log size is ≥ 1 since we start with one element)
-		let overlap = persistent.log.size() - appendreq.prev_log_index - 1 // always >= 0
+		let overlap_offset = persistent.log.size() - appendreq.prev_log_index - 1 // always >= 0
 		// check that there will be anything to append
-		if (overlap < appendreq.entries.size()) then
-			let remaining = appendreq.entries.size() - overlap
-			appendreq.entries.copy_to(persistent.log, overlap, persistent.log.size(), remaining)
+		if (overlap_offset < appendreq.entries.size()) then
+			let remaining = appendreq.entries.size() - overlap_offset
+			appendreq.entries.copy_to(persistent.log, overlap_offset, persistent.log.size(), remaining)
 		end
 
 		// if .leader_commit > commit_index,
@@ -802,9 +822,13 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// notify the leader or our decision for the append request
 		let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
 		reply.term = persistent.current_term
+		// we carry back the previous index see as we are working asynchronously
+		// (TODO - here be dragons... we need to check that this asynchronous approach
+		// 				still satisfies the temporal specification of raft)
+		reply.prev_log_index = appendreq.prev_log_index
+		reply.peer_id = _id
 		reply.success = success
 		let msg: AppendEntriesResult val = consume reply
-		_transport.unicast(appendreq.leader_id, msg)
 
 		// notify the monitor of our decision to, or not to, incorpate the entry
 		let last_index = _last_log_index()
@@ -829,31 +853,38 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			, appended = msg.success
 		)
 
-	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
+		// inform the leader
+		_transport.unicast(appendreq.leader_id, msg)
+
+	fun ref _process_append_entries_result(appendres: AppendEntriesResult) =>
 		"""
+		As a leader we need to update our view of where our peers are, in terms
+		of log replication.
 		"""
 		// _leader_check_follower_lag() causes non-heartbeat appends to be sent
 		// it seems like these results can be handled asynchronously relative to the append req
-		None
+		if _mode isnt Leader then return end // ignore stale responses, in the case that we are no longer a leader
+		match leader
+		| (let ls: VolatileLeaderState) =>
+			_monitor.append_res(_id, appendres)
+			try
+				let p: USize = _peers.find(appendres.peer_id)?
+				if (appendres.success) then
+					// if successful: update nextIndex and matchIndex for the follower (§5.3)
+					let new_next: RaftIndex = appendres.prev_log_index + 1
+					ls.next_index(p)? = new_next // FIXME this might not be right
+					ls.match_index(p)? = new_next // FIXME this might not be right
+				else
+					// if AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)
+					ls.next_index(p)? = ls.next_index(p)? - 1
+				end
+			else
+				// FIXME we should fail if we get an unknown response
+				_monitor.warning(_id, _current_term(), _current_mode(), "failed to handle append-entries-result")
+			end
+		end
 
 	// -- -- consensus module
-
-	fun ref _emit_heartbeat() =>
-		// here we simply emit empty append entry logs
-		// (we could actually maintain timers per peer
-		// and squash hearbeats if non-trival appends are sent)
-		for p in _peers.values() do
-			let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T] end
-			append.term = persistent.current_term
-			append.prev_log_index = 0 // FIXME needs to be tracked per peer
-			append.prev_log_term = 0 // FIXME
-			append.leader_commit = volatile.commit_index
-			append.leader_id = _id
-			append.entries.clear() // Note, entries is `iso`
-
-			_transport.unicast(p, consume append)
-		end
-		// note - we process the results asynchronously
 
 	fun box _peer_up_to_date(peer_last_log_term: RaftTerm, peer_last_log_index: RaftIndex): Bool =>
 		"""
@@ -888,6 +919,24 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			true
 		end
 
+	fun ref _emit_heartbeat() =>
+		// here we simply emit empty append entry logs
+		// (we could actually maintain timers per peer
+		// and squash hearbeats if non-trival appends are sent)
+		let lli: RaftIndex = _last_log_index()
+		for p in _peers.values() do
+			let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T](0) end
+			append.term = persistent.current_term
+			append.prev_log_index = lli // based on the fact that next-index is set to lli + 1
+			append.prev_log_term = try persistent.log(append.prev_log_index)?.term else 0 end
+			append.leader_commit = volatile.commit_index
+			append.leader_id = _id
+			append.entries.clear() // Note, entries is `iso`
+
+			_transport.unicast(p, consume append)
+		end
+		// note - we process the results asynchronously
+
 	// -- -- state-machine update
 
 	fun ref _sync() =>
@@ -919,8 +968,35 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		let lli: RaftIndex = _last_log_index()
 		match leader
 		| (let ls: VolatileLeaderState) =>
-			for p in ls.next_index.values() do
-				None
+			for pi in Range(0, _peers.size()) do
+				try
+					let p: NetworkAddress = _peers(pi)?
+					let ni: RaftIndex = ls.next_index(pi)?
+					if lli >= ni then
+						// send append entries to this peer (starting with entries at next-index)
+						// [ decide how many entries to send e.g. from ni with a max of 100, see: _max_append_batch ]
+						// i.e. we want [ ni, min(ni+max, lli+1) )
+						let send_count = _max_append_batch.min((lli + 1) - ni)
+						let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T](send_count) end
+						append.term = persistent.current_term
+						append.leader_commit = volatile.commit_index
+						append.leader_id = _id
+
+						append.prev_log_index = ni - 1
+						append.prev_log_term = persistent.log(append.prev_log_index)?.term
+
+						// copy/link entries to send
+						for idx in Range(ni, ni + send_count) do
+							let le = persistent.log(idx)?
+							append.entries.push(le)
+						end
+
+						_transport.unicast(p, consume append)
+					end
+				else
+					// FIXME fail hard on an error...
+					_monitor.warning(_id, _current_term(), _current_mode(), "failure preparing append-entries-requests")
+				end
 			end
 		end
 
