@@ -205,7 +205,7 @@ interface iso RaftServerMonitor[T: Any val]
 		, leader_prev_log_term: RaftTerm
 		, leader_entry_count: USize
 
-		, applied: Bool // true if these
+		, appended: Bool // true if these
 		) =>
 		"""
 		Raised when this replica accepts a log entry into is log.
@@ -314,13 +314,13 @@ trait iso RaftServerMonitorChain[T: Any val]
 		, leader_prev_log_term: RaftTerm
 		, leader_entry_count: USize
 
-		, applied: Bool
+		, appended: Bool
 		) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.append_accepted(id
 				, term, mode, last_applied_index, commit_index, last_log_index
 				, leader_term, leader_id, leader_commit_index, leader_prev_log_index, leader_prev_log_term, leader_entry_count
-				, applied
+				, appended
 			)
 		end
 	fun ref _chain_state_change(id: NetworkAddress
@@ -823,7 +823,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			, leader_prev_log_term = appendreq.prev_log_term
 			, leader_entry_count = appendreq.entries.size()
 
-			, applied = msg.success
+			, appended = msg.success
 		)
 
 	fun ref _process_append_entries_result(appendreq: AppendEntriesResult) =>
@@ -1061,10 +1061,30 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// leader    - apply commands to the journal log and distribute them to followers
 		//             (may generate backpressure if the nextIndex vs matchedIndex vs log
 		//              starts to get too large)
-		// TODO
 		let c: CommandEnvelope[T] = consume command
 		let cmd: T val = c.command
-		None
+		let le: Log[T] val = Log[T](_current_term(), consume cmd)
+		persistent.log.push(le)
+		let ll: RaftIndex = _last_log_index()
+		// notify monitor that we accepted a command into the log (as a leader)
+		_monitor.append_accepted(_id
+			where
+				term = _current_term()
+			, mode = _current_mode()
+			, last_applied_index = _last_applied_index()
+			, commit_index = _commit_index()
+			, last_log_index = ll
+
+			, leader_term = _current_term()
+			, leader_id = _id
+			, leader_commit_index = _commit_index()
+			, leader_prev_log_index = ll - 1
+			, leader_prev_log_term = try persistent.log(ll-1)?.term else 0 end
+			, leader_entry_count = 1
+
+			, appended = true
+		)
+		// TODO wait for commit before responding to the client
 
 class _Timeout is TimerNotify
 	""" A common timeout handler that will raise a signal back with the replica. """
