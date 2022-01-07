@@ -46,7 +46,7 @@ primitive Leader is _TextCopier
 
 type RaftMode is (Follower | Candidate | Leader)
 
-primitive Paused
+primitive Paused is _TextCopier
 	"""
 	Signaled when a raft server stops processing events.
 
@@ -58,7 +58,7 @@ primitive Paused
 	The server's volatile and persistent state will be left as-is.
 	"""
 	fun text():String val => "paused"
-primitive Resumed
+primitive Resumed is _TextCopier
 	"""
 	Signaled when a raft server starts processing events again.
 
@@ -66,7 +66,7 @@ primitive Resumed
 	with whatever volatile and persistent state it has.
 	"""
 	fun text():String val => "resumed"
-primitive ResetVolatile
+primitive ResetVolatile is _TextCopier
 	"""
 	Signaled when a raft server resets its volatile state.
 
@@ -75,7 +75,7 @@ primitive ResetVolatile
 	  - (including the state-machine).
 	"""
 	fun text():String val => "reset-volatile"
-primitive ResetPersistent
+primitive ResetPersistent is _TextCopier
 	"""
 	Signaled with a raft server performs a reset of stored logs.
 
@@ -85,7 +85,7 @@ primitive ResetPersistent
 	  data from other replicas.
 	"""
 	fun text():String val => "reset-persistent"
-primitive ResetSnapshot
+primitive ResetSnapshot is _TextCopier
 	"""
 	Signaled with a raft server performs a reset of its snapshots.
 
@@ -103,28 +103,32 @@ type RaftControl is (RaftReset | RaftProcessing)
 
 // -- trigger timeout logic
 
-primitive ElectionTimeout
+primitive ElectionTimeout is _TextCopier
 	"""
 	Raised in a follower when it does not receive heartbeats
 	and it should become a candidate and start its own election.
 	"""
-primitive CanvasTimeout
+	fun text():String val => "election-timeout"
+primitive CanvasTimeout is _TextCopier
 	"""
 	Raised in a candidate when it fails to canvas enough votes
 	and it should run a new election.
 	"""
-primitive HeartbeatTimeout
+	fun text():String val => "canvas-timeout"
+primitive HeartbeatTimeout is _TextCopier
 	"""
 	Raised in a leader when it should publish heartbeats to its followers,
 	pottentially also appending log entries.
 	"""
-primitive StuckTimeout
+	fun text():String val => "heartbeat-timeout"
+primitive StuckTimeout is _TextCopier
 	"""
 	[Not a Raft Protocal Timeout] - raised when the leader failes to make progress.
 
 	Raised in a leader if the commit index is not progressed for too long after
 	the log being extended.
 	"""
+	fun text():String val => "stuck-timeout"
 
 type RaftTimeout is (ElectionTimeout | HeartbeatTimeout | CanvasTimeout)
 

@@ -188,18 +188,61 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 	let _debug: _Debug
 	let _chain_link: (RaftServerMonitor[CounterCommand] | None)
 
+	var _resumed: U32
+	var _client_messages_after_resume: Bool
+	var _append_messages_after_resume: Bool
+
 	new iso create(h: TestHelper, chain: (RaftServerMonitor[CounterCommand] | None) = None, debug: _Debug = _DebugOff) =>
 		_h = h
 		_debug = debug
 		_chain_link = consume chain
+		_resumed = 0
+		_client_messages_after_resume = false
+		_append_messages_after_resume = false
 
 	fun ref _chain() : (RaftServerMonitor[CounterCommand] | None) => _chain_link
 
 	fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
+		// e.g. "raft-1:term=1;mode=leader"
 		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
 		if _debug(_DebugKey) then _h.env.out.print(t) end
 		_h.complete_action(t)
 		_chain_mode_changed(id, term, mode)
+
+	fun ref control_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
+		match control
+		| Resumed =>
+			// detect if this raft was resumed
+			_resumed = _resumed + 1
+			// e.g. "raft-1:resumed:1"
+			let t:String val = "raft-"  + id.string() + ":" + control.string() + ":" + _resumed.string()
+			if _debug(_DebugKey) then _h.env.out.print(t) end
+			_h.complete_action(t)
+			_client_messages_after_resume = false
+			_append_messages_after_resume = false
+		end
+
+	fun ref command_req(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
+		// detect if this raft got messages directly from the client after the last resume
+		if _client_messages_after_resume == false then
+			_client_messages_after_resume = true
+			// e.g "raft-1:resumed:1;client-messages-after-resume=true"
+			let t:String val = "raft-"  + id.string() + ":resumed:" + _resumed.string()
+				+ ";client-messages-after-resume=" + _client_messages_after_resume.string()
+			if _debug(_DebugKey) then _h.env.out.print(t) end
+			_h.complete_action(t)
+		end
+
+	fun ref append_req(id: NetworkAddress, signal: AppendEntriesRequest[CounterCommand] val) =>
+		// detect if this raft got append messages from the leader after the last resume
+		if _append_messages_after_resume == false then
+			_append_messages_after_resume = true
+			// e.g "raft-1:resumed:1;append-messages-after-resume=true"
+			let t:String val = "raft-"  + id.string() + ":resumed:" + _resumed.string()
+				+ ";append-messages-after-resume=" + _append_messages_after_resume.string()
+			if _debug(_DebugKey) then _h.env.out.print(t) end
+			_h.complete_action(t)
+		end
 
 // -- counter raft tests
 
@@ -311,13 +354,13 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		h.expect_action("raft-1:resumed:1")
 		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
 		h.expect_action("raft-2:resumed:1")
-		h.expect_action("raft-2:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-2:resumed:1;append-messages-after-resume=true")
 		h.expect_action("raft-3:resumed:1")
-		h.expect_action("raft-3:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-3:resumed:1;append-messages-after-resume=true")
 		h.expect_action("raft-4:resumed:1")
-		h.expect_action("raft-4:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-4:resumed:1;append-messages-after-resume=true")
 		h.expect_action("raft-5:resumed:1")
-		h.expect_action("raft-5:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-5:resumed:1;append-messages-after-resume=true")
 
 		// create a local raft proxy
 		// (this appears as a "direct state-machine" but actually delegates to the raft)
@@ -369,7 +412,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let peers: Array[NetworkAddress] val = [as NetworkAddress: 1;2;3;4;5]
 
 		// allocate raft servers
-		let initial_delay: U64 = 400_000_000 // 0.4 seconds
+		let initial_delay: U64 = 400_000_000 // 0.4 seconds for raft servers other than raft-1
 		let raft1: RaftServer[CounterCommand,CounterTotal] =
 			RaftServer[CounterCommand,CounterTotal](1, _timers, net, peers,
 					consume sm1, CounterCommands.start()
