@@ -190,7 +190,8 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 
 	var _resumed: U32
 	var _client_messages_after_resume: Bool
-	var _append_messages_after_resume: Bool
+	var _append_heartbeat_after_resume: Bool
+	var _append_content_after_resume: Bool
 
 	new iso create(h: TestHelper, chain: (RaftServerMonitor[CounterCommand] | None) = None, debug: _Debug = _DebugOff) =>
 		_h = h
@@ -198,7 +199,8 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		_chain_link = consume chain
 		_resumed = 0
 		_client_messages_after_resume = false
-		_append_messages_after_resume = false
+		_append_heartbeat_after_resume = false
+		_append_content_after_resume = false
 
 	fun ref _chain() : (RaftServerMonitor[CounterCommand] | None) => _chain_link
 
@@ -219,7 +221,8 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			if _debug(_DebugKey) then _h.env.out.print(t) end
 			_h.complete_action(t)
 			_client_messages_after_resume = false
-			_append_messages_after_resume = false
+			_append_heartbeat_after_resume = false
+			_append_content_after_resume = false
 		end
 
 	fun ref command_req(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
@@ -235,13 +238,26 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 
 	fun ref append_req(id: NetworkAddress, signal: AppendEntriesRequest[CounterCommand] val) =>
 		// detect if this raft got append messages from the leader after the last resume
-		if _append_messages_after_resume == false then
-			_append_messages_after_resume = true
-			// e.g "raft-1:resumed:1;append-messages-after-resume=true"
-			let t:String val = "raft-"  + id.string() + ":resumed:" + _resumed.string()
-				+ ";append-messages-after-resume=" + _append_messages_after_resume.string()
-			if _debug(_DebugKey) then _h.env.out.print(t) end
-			_h.complete_action(t)
+		var t:(String val | None) = None
+		if (signal.entries.size() == 0) then
+			if not _append_heartbeat_after_resume then
+				_append_heartbeat_after_resume = true
+				// e.g "raft-1:resumed:1;append-messages-after-resume=true;heartbeat"
+				t = "raft-"  + id.string() + ":resumed:" + _resumed.string()
+					+ ";append-messages-after-resume=" + _append_heartbeat_after_resume.string() + ";heartbeat"
+			end
+		else
+			if not _append_content_after_resume then
+				_append_content_after_resume = true
+				// e.g "raft-1:resumed:1;append-messages-after-resume=true;content"
+				t = "raft-"  + id.string() + ":resumed:" + _resumed.string()
+					+ ";append-messages-after-resume=" + _append_content_after_resume.string() + ";content"
+			end
+		end
+		match t
+		| (let ts: String val) =>
+			if _debug(_DebugKey) then _h.env.out.print(ts) end
+			_h.complete_action(ts)
 		end
 
 // -- counter raft tests
@@ -354,13 +370,17 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		h.expect_action("raft-1:resumed:1")
 		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
 		h.expect_action("raft-2:resumed:1")
-		h.expect_action("raft-2:resumed:1;append-messages-after-resume=true")
+		h.expect_action("raft-2:resumed:1;append-messages-after-resume=true;heartbeat")
+		h.expect_action("raft-2:resumed:1;append-messages-after-resume=true;content")
 		h.expect_action("raft-3:resumed:1")
-		h.expect_action("raft-3:resumed:1;append-messages-after-resume=true")
+		h.expect_action("raft-3:resumed:1;append-messages-after-resume=true;heartbeat")
+		h.expect_action("raft-3:resumed:1;append-messages-after-resume=true;content")
 		h.expect_action("raft-4:resumed:1")
-		h.expect_action("raft-4:resumed:1;append-messages-after-resume=true")
+		h.expect_action("raft-4:resumed:1;append-messages-after-resume=true;heartbeat")
+		h.expect_action("raft-4:resumed:1;append-messages-after-resume=true;content")
 		h.expect_action("raft-5:resumed:1")
-		h.expect_action("raft-5:resumed:1;append-messages-after-resume=true")
+		h.expect_action("raft-5:resumed:1;append-messages-after-resume=true;heartbeat")
+		h.expect_action("raft-5:resumed:1;append-messages-after-resume=true;content")
 
 		// create a local raft proxy
 		// (this appears as a "direct state-machine" but actually delegates to the raft)
