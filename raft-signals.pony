@@ -161,6 +161,9 @@ class val AppendEntriesRequest[T: Any val]
 	// Leader ID used so that the follower can redirect cilents.
 	var leader_id: NetworkAddress
 
+	// message sequence
+	var trace_seq: U64
+
 	// Log entries
 	// (Note, iso field as per: Viewpoint adaptation)
 	// (https://tutorial.ponylang.io/reference-capabilities/combining-capabilities.html)
@@ -172,6 +175,7 @@ class val AppendEntriesRequest[T: Any val]
 		prev_log_term = 0
 		leader_commit = 0
 		leader_id = NetworkAddresses.unknown()
+		trace_seq = 0
 		entries = recover iso Array[Log[T] val](size) end
 
 	fun val signal_term(): RaftTerm =>
@@ -189,13 +193,19 @@ class val AppendEntriesResult
 
 	// carry over previous log index in the request (this allows matching replies when they are asynchronous)
 	var prev_log_index: RaftIndex
+	var entries_count: USize
 	var peer_id: NetworkAddress
+
+	// message sequence
+	var trace_seq: U64
 
 	new create() =>
 		term = 0
 		success = false
 		prev_log_index = 0
+		entries_count = 0
 		peer_id = NetworkAddresses.unknown()
+		trace_seq = 0
 
 	fun val signal_term(): RaftTerm =>
 		term

@@ -438,6 +438,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	var _processing: RaftProcessing
 	let _resume_delay: (U64 | None) // an initial delay added to timers when the raft resumes
 
+	var _trace_seq: U64
+
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
 	new create(id: NetworkAddress
@@ -457,6 +459,9 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// seed the random number generator
 		(let sec: I64, let nsec: I64) = Time.now()
 		_rand = Rand(sec.u64(), nsec.u64())
+
+		// traces
+		_trace_seq = 0
 
 		// time keeping
 		_timers = timers
@@ -826,6 +831,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// (TODO - here be dragons... we need to check that this asynchronous approach
 		// 				still satisfies the temporal specification of raft)
 		reply.prev_log_index = appendreq.prev_log_index
+		reply.entries_count = appendreq.entries.size()
+		reply.trace_seq = appendreq.trace_seq
 		reply.peer_id = _id
 		reply.success = success
 		let msg: AppendEntriesResult val = consume reply
@@ -866,12 +873,15 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		if _mode isnt Leader then return end // ignore stale responses, in the case that we are no longer a leader
 		match leader
 		| (let ls: VolatileLeaderState) =>
-			_monitor.append_res(_id, appendres)
 			try
 				let p: USize = _peers.find(appendres.peer_id)?
+				// reset this peers append timestamp
+				ls.last_millis(p)? = 0
+				// update next and match
 				if (appendres.success) then
 					// if successful: update nextIndex and matchIndex for the follower (§5.3)
-					let new_next: RaftIndex = appendres.prev_log_index + 1
+					// FIXME check: let new_next: RaftIndex = appendres.prev_log_index + 1
+					let new_next: RaftIndex = appendres.prev_log_index + appendres.entries_count + 1
 					ls.next_index(p)? = new_next // FIXME this might not be right
 					ls.match_index(p)? = new_next // FIXME this might not be right
 				else
@@ -923,9 +933,12 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// here we simply emit empty append entry logs
 		// (we could actually maintain timers per peer
 		// and squash hearbeats if non-trival appends are sent)
+		// (currently, we always send heartbeats, irrespective
+		//  of last send times for peers)
 		let lli: RaftIndex = _last_log_index()
 		for p in _peers.values() do
 			let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T](0) end
+			append.trace_seq = (_trace_seq = _trace_seq + 1)
 			append.term = persistent.current_term
 			append.prev_log_index = lli // based on the fact that next-index is set to lli + 1
 			append.prev_log_term = try persistent.log(append.prev_log_index)?.term else 0 end
@@ -945,14 +958,24 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 		That is, we have the invariant: last_applied <= commit_index <= last_index.
 		But we want to drive this to be equal if possible.
+
+		Note, we will flood the system if we send out updates (appends) to a given
+		peer when we haven't yet received a response.
 		"""
 		_apply_logs_to_state_machine()
 		if _mode is Leader then
 			_leader_check_for_majority()
-			_leader_check_follower_lag()
+			_leader_check_follower_lag() // FIXME generating too many appends
 		end
 
 	fun ref _leader_check_for_majority() =>
+		"""
+		Check if we've reached a majority for any given index.
+		"""
+		// if there exists an N such that N > commit_index, a majority
+		// of match_index[i] ≥ N, and log[M].term == current_term:
+		//   set commit_index - N (§5.3, §5.4)
+		// TODO
 		None
 
 	fun ref _leader_check_follower_lag() =>
@@ -966,18 +989,23 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// 					with only one entry.
 		// the responses are handled via _process_append_entries_result()
 		let lli: RaftIndex = _last_log_index()
+		let now: U64 = Time.millis()
 		match leader
 		| (let ls: VolatileLeaderState) =>
 			for pi in Range(0, _peers.size()) do
 				try
 					let p: NetworkAddress = _peers(pi)?
 					let ni: RaftIndex = ls.next_index(pi)?
-					if lli >= ni then
+					let tm: U64 = ls.last_millis(pi)?
+					// note - we stop the stampede using a timestamp per peer
+					// FIXME - it still seems like we are sending updates when we shouldn't...
+					if (lli >= ni) and ((now - tm) > _hearbeat_timeout) then
 						// send append entries to this peer (starting with entries at next-index)
 						// [ decide how many entries to send e.g. from ni with a max of 100, see: _max_append_batch ]
 						// i.e. we want [ ni, min(ni+max, lli+1) )
 						let send_count = _max_append_batch.min((lli + 1) - ni)
 						let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T](send_count) end
+						append.trace_seq = (_trace_seq = _trace_seq + 1)
 						append.term = persistent.current_term
 						append.leader_commit = volatile.commit_index
 						append.leader_id = _id
@@ -991,6 +1019,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 							append.entries.push(le)
 						end
 
+						// keep track of when we tried to notify the peer
+						ls.last_millis(pi)? = now
 						_transport.unicast(p, consume append)
 					end
 				else
@@ -1005,6 +1035,8 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		Update the state machine by applying logs from after 'last_applied' up to and including
 		'commit_index'. However, only the leader can reply to the client.
 		"""
+		// if commit_index > last_applied:
+		//   increment last_applied, apply log[last_applied] to state-machine (§5.3)
 		// TODO _machine.accept(...)
 		None
 
@@ -1104,6 +1136,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		for p in _peers.values() do
 			vl.next_index.push(lli_plus_one)
 			vl.match_index.push(0)
+			vl.last_millis.push(0) // far in the past
 		end
 		leader = vl
 		_set_mode(Leader)
@@ -1217,11 +1250,18 @@ class _Timeout is TimerNotify
 
 	let _raisable: RaftRaisable
 	let _signal: RaftTimeout
+	var _cancelled: Bool
 
 	new iso create(raisable: RaftRaisable, signal: RaftTimeout) =>
 		_raisable = raisable
 		_signal = signal
+		_cancelled = false
 
 	fun ref apply(timer: Timer, count: U64): Bool =>
-		_raisable.raise(_signal)
-		true
+		if not _cancelled then
+			_raisable.raise(_signal)
+		end
+		not _cancelled
+
+	fun ref cancel(timer: Timer) =>
+		_cancelled = true

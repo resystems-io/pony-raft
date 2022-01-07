@@ -93,6 +93,12 @@ class ref VolatileLeaderState
 	//  only the leader responds to the client.)
 	var match_index: Array[RaftIndex]
 
+	// the millisecond timestamp of the last (non-heartbeat) append entries
+	// request sent to the given peer. This is used to prevent resends.
+	// It is cleared when a response is received.
+	var last_millis: Array[U64]
+
 	new create(size: USize) =>
 		next_index = Array[RaftIndex](size)
 		match_index = Array[RaftIndex](size)
+		last_millis = Array[U64](size)

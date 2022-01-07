@@ -248,6 +248,17 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 
 	fun ref append_req(id: NetworkAddress, signal: AppendEntriesRequest[CounterCommand] val) =>
 		// detect if this raft got append messages from the leader after the last resume
+		if _debug(_DebugKey) then
+			_h.env.out.print("raft-" + id.string()
+				+ ":appendreq"
+				+ ";term=" + signal.term.string()
+				+ ";leader_id=" + signal.leader_id.string()
+				+ ";leader_commit=" + signal.leader_commit.string()
+				+ ";prev_log_index=" + signal.prev_log_index.string()
+				+ ";entries.count=" + signal.entries.size().string()
+				+ ";trace_seq=" + signal.trace_seq.string()
+			)
+		end
 		var t:(String val | None) = None
 		if (signal.entries.size() == 0) then
 			if not _append_heartbeat_after_resume then
@@ -269,6 +280,19 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			if _debug(_DebugKey) then _h.env.out.print(ts) end
 			_h.complete_action(ts)
 		end
+
+	fun ref append_res(id: NetworkAddress, signal: AppendEntriesResult) =>
+		let t1:String val = "raft-"  + id.string() + ":appendres"
+			+ ";.term=" + signal.term.string()
+			+ ";.success=" + signal.success.string()
+			+ ";.peer_id=" + signal.peer_id.string()
+			+ ";.prev_log_index=" + signal.prev_log_index.string()
+			+ ";.entries_count=" + signal.entries_count.string()
+			+ ";.trace_seq=" + signal.trace_seq.string()
+		if _debug(_DebugKey) then
+			_h.env.out.print(t1)
+		end
+		_h.complete_action(t1)
 
 	fun ref append_accepted(id: NetworkAddress
 		, term: RaftTerm
@@ -315,17 +339,6 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		end
 		_h.complete_action(t1)
 		_h.complete_action(t2)
-
-	fun ref append_res(id: NetworkAddress, signal: AppendEntriesResult) =>
-		let t1:String val = "raft-"  + id.string() + ":appendres"
-			+ ";.term=" + signal.term.string()
-			+ ";.success=" + signal.success.string()
-			+ ";.peer_id=" + signal.peer_id.string()
-			+ ";.prev_log_index=" + signal.prev_log_index.string()
-		if _debug(_DebugKey) then
-			_h.env.out.print(t1)
-		end
-		_h.complete_action(t1)
 
 // -- counter raft tests
 
