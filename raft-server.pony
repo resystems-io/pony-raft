@@ -983,7 +983,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		for n in Range(_last_log_index(), _commit_index(), -1) do
 			let found = _is_n_a_valid_majority(n)
 			if found then
-				// TODO signal monitor of the udpate
+				// TODO signal monitor of the update
 				volatile.commit_index = n
 				break
 			end
@@ -996,8 +996,27 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 				/\ log[n].term == current_term
 				/\ || { p \in _peers : match_index[p] ≥ n } || ≥ _majority
 		"""
-		// TODO
-		false
+		// get the leader state
+		let ls: VolatileLeaderState = match leader
+			| (let l: VolatileLeaderState) => l
+			else
+				return false
+			end
+		// check that n is in range
+		if (n <= _commit_index()) then return false end
+		// check that n is for the current term
+		try
+			let l: Log[T] = persistent.log(n)?
+			if l.term != _current_term() then return false end
+		else
+			return false
+		end
+		// now check if n is a majority
+		var has_match_count: USize = 0
+		for m in ls.match_index.values() do
+			if m >= n then has_match_count = has_match_count + 1 end
+		end
+		(has_match_count >= _majority)
 
 	fun ref _leader_check_follower_lag() =>
 		"""
