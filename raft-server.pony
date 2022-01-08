@@ -687,7 +687,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			_start_leader()
 		end
 
-  // -- -- apending
+  // -- -- appending
 
 	/*
 	 * See §5.3 Log Replication
@@ -820,8 +820,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// (might be able to use the follower ID and log index values?)
 		_emit_append_res(appendreq, true)
 
-		// now update the state machine if need be
-		_apply_logs_to_state_machine()
+		// see: _sync() for applying the logs to the state machine
 
 	fun ref _emit_append_res(appendreq: AppendEntriesRequest[T], success: Bool) =>
 		// notify the leader or our decision for the append request
@@ -1035,8 +1034,50 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		"""
 		// if commit_index > last_applied:
 		//   increment last_applied, apply log[last_applied] to state-machine (§5.3)
-		// TODO _machine.accept(...)
-		None
+		let lai: RaftIndex = _last_applied_index()
+		let ci: RaftIndex = _commit_index()
+		if ci > lai then
+			let index_to_apply = lai + 1
+			try
+				// call the state-machine
+				let entry: Log[T] = persistent.log(index_to_apply)?
+				let state_machine_result: U = _machine.accept(entry.command)
+
+				// if this is a leader we need to get the result back to the client
+				if _mode is Leader then
+					// TODO
+					None
+				end
+
+				// call the monitor
+				_monitor.state_change(_id, _current_term(), _current_mode()
+						where
+							last_applied_index = lai
+						, commit_index = ci
+						, last_log_index = _last_log_index()
+						, update_log_index = index_to_apply
+					)
+
+				// right... we have not applied the log entry to the state-machine
+				// (we can not increment last_applied)
+				volatile.last_applied = volatile.last_applied + 1 // yes, this is just index_to_apply
+
+				// we only apply one log entry, so lets schedule more synchronisation work
+				// (note, this assumes that calls to the state-machine are synchronous.)
+				// (if calls are asynchronous, then we should perform more work once we get a reply.)
+				_bottom_half_sync()
+			else
+				_monitor.warning(_id, _current_term(), _current_mode(), "failure applying log to state-machine: " + index_to_apply.string())
+			end
+		end
+
+	be _bottom_half_sync() =>
+		"""
+		Perform more synchronisation work, but via a message send.
+
+		This prevents the actor for starving the process.
+		"""
+		_sync()
 
 	// -- -- snapshots
 

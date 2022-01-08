@@ -308,6 +308,23 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		, leader_entry_count: USize
 		, appended: Bool
 		) =>
+		if _debug(_DebugKey) then
+			_h.env.out.print("raft-" + id.string()
+				+ ":term=" + term.string()
+				+ ":mode=" + mode.string()
+				+ ":append-accepted"
+				+ ";last_applied_index=" + last_applied_index.string()
+				+ ";commit_index=" + commit_index.string()
+				+ ";last_log_index=" + last_log_index.string()
+				+ ";leader_term=" + leader_term.string()
+				+ ";leader_id=" + leader_id.string()
+				+ ";leader_commit_index=" + leader_commit_index.string()
+				+ ";leader_prev_log_index=" + leader_prev_log_index.string()
+				+ ";leader_prev_log_term=" + leader_prev_log_term.string()
+				+ ";leader_entry_count=" + leader_entry_count.string()
+				+ ";appended=" + appended.string()
+			)
+		end
 		// e.g. "raft-5:term=1;mode=follower;append-accept=1;success=true"
 		let tb:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
 			+ ";append-accept=" + last_log_index.string()
@@ -326,6 +343,23 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		_h.complete_action(t1)
 		_h.complete_action(t2)
 		_h.complete_action(t3)
+
+	fun ref state_change(id: NetworkAddress
+		, term: RaftTerm
+		, mode: RaftMode
+		, last_applied_index: RaftIndex
+		, commit_index: RaftIndex
+		, last_log_index: RaftIndex
+		, update_log_index: RaftIndex
+		) =>
+		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ":mode=" + mode.string()
+			+ ":state-machine-update"
+			+ ";last_applied_index=" + last_applied_index.string()
+			+ ";commit_index=" + commit_index.string()
+			+ ";last_log_index=" + last_log_index.string()
+			+ ";update_log_index=" + update_log_index.string()
+		if _debug(_DebugKey) then _h.env.out.print(t) end
+		_h.complete_action(t)
 
 	fun ref warning(id: NetworkAddress
 		, term: RaftTerm
@@ -377,7 +411,7 @@ class iso _TestSansRaft is UnitTest
 
 		// allocate a state machine and transit
 		let sm: CounterMachine iso^ = recover iso CounterMachine end
-		let cem = object tag
+		let cem = object tag // router for the commands (combines egress and ingress)
 				let _sm: CounterMachine iso = consume sm
 				var _cl: (CounterClient | None) = None
 				be apply(command: CounterCommand) =>
