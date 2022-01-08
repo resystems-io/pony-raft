@@ -973,8 +973,31 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// if there exists an N such that N > commit_index, a majority
 		// of match_index[i] ≥ N, and log[M].term == current_term:
 		//   set commit_index - N (§5.3, §5.4)
+
+		// here we will search an N \in (commit-index, last-log-index]
+		// (note, we don't need to ceiling value, so we can follow the
+		// strategy: start at last-log-index, then step down by half,
+		// rounded up, until we get to commit-index)
+
+		// brute force search
+		for n in Range(_last_log_index(), _commit_index(), -1) do
+			let found = _is_n_a_valid_majority(n)
+			if found then
+				// TODO signal monitor of the udpate
+				volatile.commit_index = n
+				break
+			end
+		end
+
+	fun ref _is_n_a_valid_majority(n: RaftIndex): Bool =>
+		"""
+		Checks if:
+				/\ n > commit_index
+				/\ log[n].term == current_term
+				/\ || { p \in _peers : match_index[p] ≥ n } || ≥ _majority
+		"""
 		// TODO
-		None
+		false
 
 	fun ref _leader_check_follower_lag() =>
 		"""
