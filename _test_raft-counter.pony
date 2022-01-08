@@ -352,14 +352,16 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		, last_log_index: RaftIndex
 		, update_log_index: RaftIndex
 		) =>
-		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ":mode=" + mode.string()
+		let tb:String val = "raft-"  + id.string() + ":term=" + term.string() + ":mode=" + mode.string()
 			+ ":state-machine-update"
 			+ ";last_applied_index=" + last_applied_index.string()
 			+ ";commit_index=" + commit_index.string()
+		let tf:String val = tb
 			+ ";last_log_index=" + last_log_index.string()
 			+ ";update_log_index=" + update_log_index.string()
-		if _debug(_DebugKey) then _h.env.out.print(t) end
-		_h.complete_action(t)
+		if _debug(_DebugKey) then _h.env.out.print(tf) end
+		_h.complete_action(tb)
+		_h.complete_action(tf)
 
 	fun ref warning(id: NetworkAddress
 		, term: RaftTerm
@@ -476,12 +478,22 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		h.expect_action("source-1:end:sent=100")
 		h.expect_action("source-1:end:ack=100")
 		h.expect_action("source-1:end:timeouts=false")
+
+		// commits
+		h.expect_action("raft-1:term=1:mode=leader:state-machine-update;last_applied_index=100;commit_index=100")
+		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=100;commit_index=100")
+		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=100;commit_index=100")
+		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=100;commit_index=100")
+		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=100;commit_index=100")
+
+		// leader election
 		h.expect_action("raft-1:term=1;mode=leader")
 		h.expect_action("raft-2:term=1;mode=follower")
 		h.expect_action("raft-3:term=1;mode=follower")
 		h.expect_action("raft-4:term=1;mode=follower")
 		h.expect_action("raft-5:term=1;mode=follower")
-		// ...
+
+		// processing
 		h.expect_action("raft-1:control:resumed:1")
 		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
 		h.expect_action("raft-1:term=1;mode=leader;append-accept=1;leader=1;success=true")
