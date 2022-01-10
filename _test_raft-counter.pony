@@ -480,11 +480,11 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		h.expect_action("source-1:end:timeouts=false")
 
 		// commits
-		h.expect_action("raft-1:term=1:mode=leader:state-machine-update;last_applied_index=100;commit_index=100")
-		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=100;commit_index=100")
-		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=100;commit_index=100")
-		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=100;commit_index=100")
-		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=100;commit_index=100")
+		h.expect_action("raft-1:term=1:mode=leader:state-machine-update;last_applied_index=99;commit_index=100;last_log_index=100;update_log_index=100")
+		h.expect_action("raft-2:term=1:mode=follower:state-machine-update;last_applied_index=99;commit_index=100;last_log_index=100;update_log_index=100")
+		h.expect_action("raft-3:term=1:mode=follower:state-machine-update;last_applied_index=99;commit_index=100;last_log_index=100;update_log_index=100")
+		h.expect_action("raft-4:term=1:mode=follower:state-machine-update;last_applied_index=99;commit_index=100;last_log_index=100;update_log_index=100")
+		h.expect_action("raft-5:term=1:mode=follower:state-machine-update;last_applied_index=99;commit_index=100;last_log_index=100;update_log_index=100")
 
 		// leader election
 		h.expect_action("raft-1:term=1;mode=leader")
