@@ -16,20 +16,30 @@ interface tag Egress[P: Any val]
 		"""
 		None
 
-actor IntraProcessRaftServerEgress[T: Any val, U: Any val]
+type RaftEgress[T: Any val, U: Any val] is Egress[(RaftServerSignal[T]|U)]
+
+actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 	"""
-	An egress for peers and clients.
+	An egress for raft servers via which they can reach peers and clients.
+
+	T = the state-machine commands.
+	U = the state-machine response.
 	"""
 
 	let _monitor: NetworkMonitor
 	let _registry_peer: Map[NetworkAddress, RaftEndpoint[T] tag]
+	let _registry_client: Map[NetworkAddress, Endpoint[U] tag]
 
 	new create(monitor: NetworkMonitor = NopNetworkMonitor) =>
 		_monitor = monitor
 		_registry_peer = Map[NetworkAddress, RaftEndpoint[T] tag]
+		_registry_client = Map[NetworkAddress, Endpoint[U] tag]
 
 	be register_peer(id: NetworkAddress, server: RaftEndpoint[T] tag) =>
 		_registry_peer(id) = server
+
+	be register_client(id: NetworkAddress, client: Endpoint[U] tag) =>
+		_registry_client(id) = client
 
 	be emit(msg: (RaftServerSignal[T] | U)) =>
 		match consume msg
@@ -55,4 +65,4 @@ actor IntraProcessRaftServerEgress[T: Any val, U: Any val]
 		end
 
 	fun ref _handle_client(m: U) =>
-		None
+		None // TODO this can be client specific and should be delegated to the implementation

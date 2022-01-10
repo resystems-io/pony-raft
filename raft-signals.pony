@@ -43,6 +43,8 @@ interface val RaftTarget
 
 // -- commands
 
+// TODO consider using command-envelope, raft-redirect, response-envelope as part of a raft-proxy
+
 class val CommandEnvelope[T: Any #send]
 	"""
 	An envelope to transport commands from the client raft a replica.
