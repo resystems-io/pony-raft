@@ -2,12 +2,7 @@ use "collections"
 use "time"
 use "random"
 
-
 // TODO consider being more explicit by defining Endpoint relative to Raft and RaftServer
-
-interface tag Stoppable is DisposableActor
-	be stop() => None
-	be dispose() => stop()
 
 interface tag Endpoint[T: Any #send] is Stoppable
 	"""
