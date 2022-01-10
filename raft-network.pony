@@ -3,7 +3,7 @@ use "time"
 use "random"
 
 primitive NetworkAddresses
-	fun val unknown(): NetworkAddress => 0
+	fun val unknown(): NetworkAddress => U16.max_value()
 
 type NetworkAddress is U16
 	"""

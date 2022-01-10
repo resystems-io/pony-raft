@@ -38,6 +38,9 @@ type RaftIndex is USize
 interface val HasTerm
 	fun val signal_term(): RaftTerm => 0
 
+interface val RaftTarget
+	fun val target(): NetworkAddress => NetworkAddresses.unknown()
+
 // -- commands
 
 class val CommandEnvelope[T: Any #send]
@@ -93,6 +96,9 @@ class val VoteRequest
 	   as receiver’s log, then grant vote.
 	"""
 
+	// target peer
+	var target_peer_id: NetworkAddress
+
 	// Candidate's term
 	var term: RaftTerm
 
@@ -106,15 +112,21 @@ class val VoteRequest
 	var candidate_id: NetworkAddress
 
 	new create() =>
+		target_peer_id = 0
 		term = 0
 		last_log_index = 0
 		last_log_term = 0
 		candidate_id = 0
 
+	fun val target(): NetworkAddress => target_peer_id
+
 	fun val signal_term(): RaftTerm =>
 		term
 
 class val VoteResponse
+
+	// target peer
+	var target_candidate_id: NetworkAddress
 
 	// The current_term, for the candidate to update itself
 	var term: RaftTerm
@@ -123,8 +135,11 @@ class val VoteResponse
 	var vote_granted: Bool
 
 	new create() =>
+		target_candidate_id = 0
 		term = 0
 		vote_granted = false
+
+	fun val target(): NetworkAddress => target_candidate_id
 
 	fun val signal_term(): RaftTerm =>
 		term
@@ -144,6 +159,9 @@ class val AppendEntriesRequest[T: Any val]
 	4. Append any new entries not already in the log
 	5. If leader_commit > commit_index, set commit_index = min(leader_commit, index of last new entry)
 	"""
+
+	// target peer
+	var target_follower_id: NetworkAddress
 
 	// Leader's term
 	var term: RaftTerm
@@ -170,6 +188,7 @@ class val AppendEntriesRequest[T: Any val]
 	embed entries: Array[Log[T] val] iso
 
 	new create(size: USize = 0) =>
+		target_follower_id = 0
 		term = 0
 		prev_log_index = 0
 		prev_log_term = 0
@@ -178,10 +197,15 @@ class val AppendEntriesRequest[T: Any val]
 		trace_seq = 0
 		entries = recover iso Array[Log[T] val](size) end
 
+	fun val target(): NetworkAddress => target_follower_id
+
 	fun val signal_term(): RaftTerm =>
 		term
 
 class val AppendEntriesResult
+
+	// target peer
+	var target_leader_id: NetworkAddress
 
 	// Current term, for the leader to update itself
 	var term: RaftTerm
@@ -200,12 +224,15 @@ class val AppendEntriesResult
 	var trace_seq: U64
 
 	new create() =>
+		target_leader_id = 0
 		term = 0
 		success = false
 		prev_log_index = 0
 		entries_count = 0
 		peer_id = NetworkAddresses.unknown()
 		trace_seq = 0
+
+	fun val target(): NetworkAddress => target_leader_id
 
 	fun val signal_term(): RaftTerm =>
 		term
@@ -229,6 +256,9 @@ class val InstallSnapshotRequest
 	7. Discard the entire log
 	8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
 	"""
+
+	// target peer
+	var target_follower_id: NetworkAddress
 
 	// Leader's term
 	var term: RaftTerm
@@ -255,6 +285,7 @@ class val InstallSnapshotRequest
 	embed data: Array[U8]
 
 	new create() =>
+		target_follower_id = 0
 		term = 0
 		leader_id = 0
 		last_included_index = 0
@@ -263,16 +294,24 @@ class val InstallSnapshotRequest
 		offset = 0
 		data = Array[U8](0)
 
+	fun val target(): NetworkAddress => target_follower_id
+
 	fun val signal_term(): RaftTerm =>
 		term
 
 class val InstallSnapshotResponse
 
+	// target peer
+	var target_leader_id: NetworkAddress
+
 	// Current term, for the leader to update itself
 	var term: RaftTerm
 
 	new create() =>
+		target_leader_id = 0
 		term = 0
+
+	fun val target(): NetworkAddress => target_leader_id
 
 	fun val signal_term(): RaftTerm =>
 		term
