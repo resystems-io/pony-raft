@@ -30,15 +30,24 @@ type RaftSignal[T: Any val] is ( // FIXME actually need a U here for the reponse
 
 // -- common types used in signals
 
+type RaftId is U16
 type RaftTerm is U64
 type RaftIndex is USize
+
+primitive RaftIdentifiers
+	fun val unknown(): RaftId => U16.max_value()
 
 // -- common accessors
 
 interface val HasTerm
 	fun val signal_term(): RaftTerm => 0
 
+interface val RaftTarget
+	fun val target(): RaftId => RaftIdentifiers.unknown()
+
 // -- commands
+
+// TODO consider using command-envelope, raft-redirect, response-envelope as part of a raft-proxy
 
 class val CommandEnvelope[T: Any #send]
 	"""
@@ -58,10 +67,10 @@ class val RaftRedirect[T: Any #send]
 	A signal to inform the client that the message should be sent to
 	a different server.
 	"""
-	let leader_id: NetworkAddress
+	let leader_id: RaftId
 	let command: T // the message that was sent, and should be redirected
 
-	new val create(id: NetworkAddress, value: T) =>
+	new val create(id: RaftId, value: T) =>
 		this.leader_id = id
 		this.command = consume value
 
@@ -93,6 +102,9 @@ class val VoteRequest
 	   as receiver’s log, then grant vote.
 	"""
 
+	// target peer
+	var target_peer_id: RaftId
+
 	// Candidate's term
 	var term: RaftTerm
 
@@ -103,18 +115,24 @@ class val VoteRequest
 	var last_log_term: RaftTerm
 
 	// Candidate requesting the vote
-	var candidate_id: NetworkAddress
+	var candidate_id: RaftId
 
 	new create() =>
+		target_peer_id = 0
 		term = 0
 		last_log_index = 0
 		last_log_term = 0
 		candidate_id = 0
 
+	fun val target(): RaftId => target_peer_id
+
 	fun val signal_term(): RaftTerm =>
 		term
 
 class val VoteResponse
+
+	// target peer
+	var target_candidate_id: RaftId
 
 	// The current_term, for the candidate to update itself
 	var term: RaftTerm
@@ -123,8 +141,11 @@ class val VoteResponse
 	var vote_granted: Bool
 
 	new create() =>
+		target_candidate_id = 0
 		term = 0
 		vote_granted = false
+
+	fun val target(): RaftId => target_candidate_id
 
 	fun val signal_term(): RaftTerm =>
 		term
@@ -145,6 +166,9 @@ class val AppendEntriesRequest[T: Any val]
 	5. If leader_commit > commit_index, set commit_index = min(leader_commit, index of last new entry)
 	"""
 
+	// target peer
+	var target_follower_id: RaftId
+
 	// Leader's term
 	var term: RaftTerm
 
@@ -159,7 +183,7 @@ class val AppendEntriesRequest[T: Any val]
 	var leader_commit: RaftIndex
 
 	// Leader ID used so that the follower can redirect cilents.
-	var leader_id: NetworkAddress
+	var leader_id: RaftId
 
 	// message sequence
 	var trace_seq: U64
@@ -170,18 +194,24 @@ class val AppendEntriesRequest[T: Any val]
 	embed entries: Array[Log[T] val] iso
 
 	new create(size: USize = 0) =>
+		target_follower_id = 0
 		term = 0
 		prev_log_index = 0
 		prev_log_term = 0
 		leader_commit = 0
-		leader_id = NetworkAddresses.unknown()
+		leader_id = RaftIdentifiers.unknown()
 		trace_seq = 0
 		entries = recover iso Array[Log[T] val](size) end
+
+	fun val target(): RaftId => target_follower_id
 
 	fun val signal_term(): RaftTerm =>
 		term
 
 class val AppendEntriesResult
+
+	// target peer
+	var target_leader_id: RaftId
 
 	// Current term, for the leader to update itself
 	var term: RaftTerm
@@ -194,18 +224,21 @@ class val AppendEntriesResult
 	// carry over previous log index in the request (this allows matching replies when they are asynchronous)
 	var prev_log_index: RaftIndex
 	var entries_count: USize
-	var peer_id: NetworkAddress
+	var peer_id: RaftId
 
 	// message sequence
 	var trace_seq: U64
 
 	new create() =>
+		target_leader_id = 0
 		term = 0
 		success = false
 		prev_log_index = 0
 		entries_count = 0
-		peer_id = NetworkAddresses.unknown()
+		peer_id = RaftIdentifiers.unknown()
 		trace_seq = 0
+
+	fun val target(): RaftId => target_leader_id
 
 	fun val signal_term(): RaftTerm =>
 		term
@@ -230,11 +263,14 @@ class val InstallSnapshotRequest
 	8. Reset state machine using snapshot contents (and load snapshot’s cluster configuration)
 	"""
 
+	// target peer
+	var target_follower_id: RaftId
+
 	// Leader's term
 	var term: RaftTerm
 
 	// Leader ID so that the follower can redirect clients
-	var leader_id: NetworkAddress
+	var leader_id: RaftId
 
 	// The last included index (the snapshot replaces all entries up through to and including this index)
 	var last_included_index: RaftIndex
@@ -255,6 +291,7 @@ class val InstallSnapshotRequest
 	embed data: Array[U8]
 
 	new create() =>
+		target_follower_id = 0
 		term = 0
 		leader_id = 0
 		last_included_index = 0
@@ -263,16 +300,24 @@ class val InstallSnapshotRequest
 		offset = 0
 		data = Array[U8](0)
 
+	fun val target(): RaftId => target_follower_id
+
 	fun val signal_term(): RaftTerm =>
 		term
 
 class val InstallSnapshotResponse
 
+	// target peer
+	var target_leader_id: RaftId
+
 	// Current term, for the leader to update itself
 	var term: RaftTerm
 
 	new create() =>
+		target_leader_id = 0
 		term = 0
+
+	fun val target(): RaftId => target_leader_id
 
 	fun val signal_term(): RaftTerm =>
 		term

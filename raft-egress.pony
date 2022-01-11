@@ -1,0 +1,70 @@
+use "collections"
+
+interface tag Egress[P: Any val]
+	// TODO revist use of 'val' and consider expanding to '#send'
+	"""
+	An egress fabric that will route the given message.
+	"""
+	be emit(msg: P) =>
+		"""
+		Emit a packet into the egress fabric.
+
+		Once in the egress fabric, the egress routing will direct the
+		packet based on the routing rules and the packet contents.
+
+		Note, egress routing can be source specific, but this is
+		transparent to the emitting component.
+		"""
+		None
+
+interface tag RaftEgress[T: Any val, U: Any val] is Egress[(RaftServerSignal[T]|U)]
+	be register_peer(id: RaftId, server: RaftEndpoint[T] tag) => None
+
+actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
+	"""
+	An egress for raft servers via which they can reach peers and clients.
+
+	T = the state-machine commands.
+	U = the state-machine response.
+	"""
+
+	let _monitor: NetworkMonitor
+	let _registry_peer: Map[RaftId, RaftEndpoint[T] tag]
+	let _registry_client: Map[RaftId, Endpoint[U] tag]
+
+	new create(monitor: NetworkMonitor = NopNetworkMonitor) =>
+		_monitor = monitor
+		_registry_peer = Map[RaftId, RaftEndpoint[T] tag]
+		_registry_client = Map[RaftId, Endpoint[U] tag]
+
+	be register_peer(id: RaftId, server: RaftEndpoint[T] tag) =>
+		_registry_peer(id) = server
+
+	be register_client(id: RaftId, client: Endpoint[U] tag) =>
+		_registry_client(id) = client
+
+	be emit(msg: (RaftServerSignal[T] | U)) =>
+		match consume msg
+		| (let m: RaftServerSignal[T]) => _handle_peer(consume m)
+		| (let m: U) => _handle_client(consume m)
+		end
+
+	fun ref _handle_peer(m: RaftServerSignal[T]) =>
+		let id = match m
+			| (let v: RaftTarget val) => v.target()
+			else
+				_monitor.dropped(RaftIdentifiers.unknown())
+				return
+			end
+		_route_peer(id, m)
+
+	fun ref _route_peer(id: RaftId, m: RaftServerSignal[T]) =>
+		try
+			_registry_peer(id)?.apply(consume m)
+			_monitor.sent(id)
+		else
+			_monitor.dropped(id)
+		end
+
+	fun ref _handle_client(m: U) =>
+		None // TODO this can be client specific and should be delegated to the implementation

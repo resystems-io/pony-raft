@@ -29,7 +29,7 @@ class ref PersistentServerState[T: Any #send]
 
 	// The candidate ID that receieved a vote in the current term
 	// (or none if no vote has been cast)
-	var voted_for: (NetworkAddress | None)
+	var voted_for: (RaftId | None)
 
 	// The log entries. Each entry contains a command for the the
 	// state machine, and the term when the entry was received by
