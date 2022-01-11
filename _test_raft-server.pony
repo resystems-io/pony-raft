@@ -142,6 +142,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 	be lead_one() =>
 		// start by assuming that the follower has nothing, hence (prev_log_index, prev_log_term) = (0,0)
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.target_follower_id = _follower_id
 		append.term = 3
 		append.prev_log_index = 0
 		append.prev_log_term = 0
@@ -165,6 +166,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 	be lead_two() =>
 		// continue with an overlapping e.g. (prev_log_index, prev_log_term) = (4,2) to change to log terms 11244
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.target_follower_id = _follower_id
 		append.term = 4
 		append.prev_log_index = 3
 		append.prev_log_term = 2
@@ -264,6 +266,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 	be lead_one() =>
 		// start by assuming that the follower has nothing, hence (prev_log_index, prev_log_term) = (0,0)
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.target_follower_id = _follower_id
 		append.term = 1
 		append.prev_log_index = 0
 		append.prev_log_term = 0
@@ -282,6 +285,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 	be lead_two() =>
 		// continue with a valid update e.g. (prev_log_index, prev_log_term) = (1,1)
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.target_follower_id = _follower_id
 		append.term = 1
 		append.prev_log_index = 1
 		append.prev_log_term = 1
@@ -301,6 +305,7 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 		// now publish an out of sequence log entry e.g. (prev_log_index, prev_log_term) = (2,3)
 		// (here the index should match but the term will be out of sync and larger)
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.target_follower_id = _follower_id
 		append.term = 4
 		append.prev_log_index = 2
 		append.prev_log_term = 3
@@ -564,6 +569,7 @@ actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 			// reply and grant vote
 			let vote: VoteResponse iso = recover iso VoteResponse end
+			vote.target_candidate_id = s.candidate_id
 			vote.term = 0 // choose a low term so that the vote is accepted by the candidate
 			vote.vote_granted = true
 			_net.unicast(s.candidate_id, consume vote)
@@ -669,6 +675,7 @@ actor HeartbeatOnVoteMockRaftServer is RaftEndpoint[DummyCommand]
 			_h.complete_action("got-vote-request")
 			// send an append with a lower term
 			let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+			append.target_follower_id = s.candidate_id
 			append.term = s.term // set the same term seen in the vote request
 			append.prev_log_index = 0
 			append.prev_log_term = 0
@@ -723,6 +730,7 @@ class iso _TestFailLowerTermAppend is UnitTest
 
 		// send an append with a lower term
 		let append: AppendEntriesRequest[DummyCommand] iso = recover iso AppendEntriesRequest[DummyCommand] end
+		append.target_follower_id = receiver_follower_id
 		append.term = sent_term // set a lower term (follower was forced to start with a higher term)
 		append.prev_log_index = 0
 		append.prev_log_term = 0
@@ -957,6 +965,7 @@ class iso _TestRequestVote is UnitTest
 
 		// send a vote
 		let canvas: VoteRequest iso = recover iso VoteRequest end
+		canvas.target_peer_id = receiver_candidate_id
 		canvas.term = 1
 		canvas.last_log_index = 0
 		canvas.last_log_term = 0

@@ -653,6 +653,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	fun ref _process_vote_request(votereq: VoteRequest) =>
 		""" See Raft §5.2 """
 		let ires: VoteResponse iso = recover iso VoteResponse end
+		ires.target_candidate_id = votereq.candidate_id
 		ires.term = persistent.current_term
 		if votereq.term < persistent.current_term then
 			ires.vote_granted = false
@@ -825,6 +826,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	fun ref _emit_append_res(appendreq: AppendEntriesRequest[T], success: Bool) =>
 		// notify the leader or our decision for the append request
 		let reply: AppendEntriesResult iso = recover iso AppendEntriesResult end
+		reply.target_leader_id = appendreq.leader_id
 		reply.term = persistent.current_term
 		// we carry back the previous index see as we are working asynchronously
 		// (TODO - here be dragons... we need to check that this asynchronous approach
@@ -936,6 +938,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		let lli: RaftIndex = _last_log_index()
 		for p in _peers.values() do
 			let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T](0) end
+			append.target_follower_id = p
 			append.trace_seq = (_trace_seq = _trace_seq + 1)
 			append.term = persistent.current_term
 			append.prev_log_index = lli // based on the fact that next-index is set to lli + 1
@@ -1044,6 +1047,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 						// i.e. we want [ ni, min(ni+max, lli+1) )
 						let send_count = _max_append_batch.min((lli + 1) - ni)
 						let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T](send_count) end
+						append.target_follower_id = p
 						append.trace_seq = (_trace_seq = _trace_seq + 1)
 						append.term = persistent.current_term
 						append.leader_commit = volatile.commit_index
@@ -1190,6 +1194,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		// send vote requests to other replicas (in parallel)
 		for p in _peers.values() do
 			let canvas: VoteRequest iso = recover iso VoteRequest end
+			canvas.target_peer_id = p
 			canvas.term = persistent.current_term
 			canvas.candidate_id = _id
 
