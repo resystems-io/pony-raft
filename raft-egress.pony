@@ -17,8 +17,20 @@ interface tag Egress[P: Any val]
 		"""
 		None
 
+interface val EgressMonitor
+	"""
+	A monitor for network activity.
+	"""
+	fun val dropped(id: NetworkAddress) => None
+	fun val sent(id: NetworkAddress) => None
+
+class val NopEgressMonitor is EgressMonitor
+
 interface tag RaftEgress[T: Any val, U: Any val] is Egress[(RaftServerSignal[T]|U)]
-	be register_peer(id: RaftId, server: RaftEndpoint[T] tag) => None
+	be register_peer(id: RaftId, server: RaftEndpoint[T] tag
+		, ready:{ref ()} iso = {ref () => None }) => None
+
+actor NopEgress[P: Any val] is Egress[P]
 
 actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 	"""
@@ -28,20 +40,18 @@ actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 	U = the state-machine response.
 	"""
 
-	let _monitor: NetworkMonitor
+	let _monitor: EgressMonitor
 	let _registry_peer: Map[RaftId, RaftEndpoint[T] tag]
-	let _registry_client: Map[RaftId, Endpoint[U] tag]
+	let _client_delegate: Egress[U] tag // TODO for performance, we could consider iso router
 
-	new create(monitor: NetworkMonitor = NopNetworkMonitor) =>
+	new create(monitor: EgressMonitor = NopEgressMonitor, delegate: Egress[U] = NopEgress[U]) =>
 		_monitor = monitor
 		_registry_peer = Map[RaftId, RaftEndpoint[T] tag]
-		_registry_client = Map[RaftId, Endpoint[U] tag]
+		_client_delegate = delegate
 
-	be register_peer(id: RaftId, server: RaftEndpoint[T] tag) =>
+	be register_peer(id: RaftId, server: RaftEndpoint[T] tag
+		, ready:{ref ()} iso = {ref () => None }) =>
 		_registry_peer(id) = server
-
-	be register_client(id: RaftId, client: Endpoint[U] tag) =>
-		_registry_client(id) = client
 
 	be emit(msg: (RaftServerSignal[T] | U)) =>
 		match consume msg
@@ -67,4 +77,40 @@ actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 		end
 
 	fun ref _handle_client(m: U) =>
-		None // TODO this can be client specific and should be delegated to the implementation
+		_client_delegate.emit(consume m)
+
+interface val MapToKey[K: U16 val, P: Any val]
+	fun box apply(m: P): (K,P!) ? => error
+
+class TrivalMapToKey[K: U16 val, P: Any val] is MapToKey[K,P]
+
+actor IntraProcessEgress[K: U16 val, P: Any val] is Egress[P]
+	"""
+	A general egress with the ability to register endpoints.
+
+	K = the identifier of the endpoint
+	P = the type being routed
+	"""
+
+	let _monitor: EgressMonitor
+	let _mapper: MapToKey[K,P]
+	let _registry: Map[K, Endpoint[P] tag]
+
+	new create(mapper: MapToKey[K,P] = TrivalMapToKey[K,P], monitor: EgressMonitor = NopEgressMonitor) =>
+		_mapper = mapper
+		_monitor = monitor
+		_registry= Map[K, Endpoint[P] tag]
+
+	be register(id: K, endpoint: Endpoint[P] tag
+		, ready:{ref ()} iso = {ref () => None }) =>
+		_registry(id) = endpoint
+		ready()
+
+	be emit(msg: P) =>
+		try
+			(let k: K, let m: P) = _mapper.apply(msg)?
+			_registry(k)?.apply(consume m)
+			_monitor.sent(k)
+		else
+			_monitor.dropped(RaftIdentifiers.unknown())
+		end

@@ -35,6 +35,8 @@ interface val NetworkMonitor
 	fun val dropped(id: NetworkAddress) => None
 	fun val sent(id: NetworkAddress) => None
 
+class val NopNetworkMonitor is NetworkMonitor
+
 interface tag Network[T: Any #send] is Transport[T]
 	"""
 	A network defines a configuration transport layer.
@@ -49,8 +51,6 @@ interface tag Network[T: Any #send] is Transport[T]
 
 	be register(id: NetworkAddress, server: Endpoint[T] tag) => None
 	be deregister(id: NetworkAddress, server: Endpoint[T] tag) => None
-
-class val NopNetworkMonitor is NetworkMonitor
 
 actor IntraProcessNetwork[T: Any #send] is Network[T]
 	"""
