@@ -25,7 +25,7 @@ actor Main is TestList
 	fun tag tests(test: PonyTest) =>
 		WithoutTests.make().tests(test)
 		RaftServerTests.make().tests(test)
-		RaftCounterTests.make().tests(test)
+		// RaftCounterTests.make().tests(test) // TODO(see active/counter)
 
 // -- demo
 
