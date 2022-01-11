@@ -1,6 +1,7 @@
 use "collections"
 
 interface tag Egress[P: Any val]
+	// TODO revist use of 'val' and consider expanding to '#send'
 	"""
 	An egress fabric that will route the given message.
 	"""
@@ -16,7 +17,8 @@ interface tag Egress[P: Any val]
 		"""
 		None
 
-type RaftEgress[T: Any val, U: Any val] is Egress[(RaftServerSignal[T]|U)]
+interface tag RaftEgress[T: Any val, U: Any val] is Egress[(RaftServerSignal[T]|U)]
+	be register_peer(id: NetworkAddress, server: RaftEndpoint[T] tag) => None
 
 actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 	"""

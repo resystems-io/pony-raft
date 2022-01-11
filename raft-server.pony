@@ -381,7 +381,7 @@ primitive RaftTimeoutDefaults
 	fun repeat_election_timeout(): U64	=>   200_000_000 // 300 ms
 	fun hearbeat_timeout(): U64					=>    75_000_000 // 75 ms
 
-actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
+actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 	"""
 	Each raft server runs concurrently and coordinates with the other servers in the raft.
@@ -418,7 +418,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 	let _timers: Timers
 
 	let _id: NetworkAddress
-	let _transport: Transport[RaftSignal[T]]
+	let _egress: RaftEgress[T,U]
 	let _majority: USize
 	let _peers: Array[NetworkAddress]					// other servers in the raft
 
@@ -444,7 +444,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 	new create(id: NetworkAddress
 		, timers: Timers
-		, network: Transport[RaftSignal[T]]
+		, egress: RaftEgress[T,U]
 		, peers: Array[NetworkAddress] val
 		, machine: StateMachine[T,U] iso
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
@@ -475,7 +475,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 		// networking
 		_id = id
-		_transport = network
+		_egress = egress
 
 		// copy peers but remove self
 		_majority = peers.size().shr(1) + 1 // we assume that the peer set odd in size
@@ -678,7 +678,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 				end
 		end
 		let res: VoteResponse val = consume ires
-		_transport.unicast(votereq.candidate_id, res)
+		_egress.emit(res)
 
 	fun ref _process_vote_response(voteres: VoteResponse) =>
 		if (_mode isnt Candidate) then return end // ignore late vote responses
@@ -862,7 +862,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 		)
 
 		// inform the leader
-		_transport.unicast(appendreq.leader_id, msg)
+		_egress.emit(msg)
 
 	fun ref _process_append_entries_result(appendres: AppendEntriesResult) =>
 		"""
@@ -947,7 +947,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			append.leader_id = _id
 			append.entries.clear() // Note, entries is `iso`
 
-			_transport.unicast(p, consume append)
+			_egress.emit(consume append)
 		end
 		// note - we process the results asynchronously
 
@@ -1064,7 +1064,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 
 						// keep track of when we tried to notify the peer
 						ls.last_millis(pi)? = now
-						_transport.unicast(p, consume append)
+						_egress.emit(consume append)
 					end
 				else
 					// FIXME fail hard on an error...
@@ -1202,7 +1202,7 @@ actor RaftServer[T: Any val, U: Any #send] is RaftEndpoint[T]
 			canvas.last_log_term = try persistent.log(volatile.commit_index.usize())?.term else RaftTerm(0) end
 			canvas.last_log_index = volatile.commit_index
 
-			_transport.unicast(p, consume canvas)
+			_egress.emit(consume canvas)
 		end
 
 		_start_candidate_timer()

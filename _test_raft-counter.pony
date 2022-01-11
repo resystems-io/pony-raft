@@ -572,40 +572,40 @@ class iso _TestSingleSourceNoFailures is UnitTest
 
 		// allocate a raft peer network
 		let netmon = EnvNetworkMonitor(h.env)
-		let net: Network[RaftSignal[CounterCommand]] =
-			IntraProcessNetwork[RaftSignal[CounterCommand]](netmon)
+		let egress: RaftEgress[CounterCommand,CounterTotal] =
+			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon)
 		let peers: Array[NetworkAddress] val = [as NetworkAddress: 1;2;3;4;5]
 
 		// allocate raft servers
 		let initial_delay: U64 = 400_000_000 // 0.4 seconds for raft servers other than raft-1
 		let raft1: RaftServer[CounterCommand,CounterTotal] =
-			RaftServer[CounterCommand,CounterTotal](1, _timers, net, peers,
+			RaftServer[CounterCommand,CounterTotal](1, _timers, egress, peers,
 					consume sm1, CounterCommands.start()
 					where monitor = consume rmon1, initial_processing = Paused, resume_delay = 0) // we give raft1 a head start
 		let raft2: RaftServer[CounterCommand,CounterTotal] =
-			RaftServer[CounterCommand,CounterTotal](2, _timers, net, peers,
+			RaftServer[CounterCommand,CounterTotal](2, _timers, egress, peers,
 					consume sm2, CounterCommands.start()
 					where monitor = consume rmon2, initial_processing = Paused, resume_delay = initial_delay)
 		let raft3: RaftServer[CounterCommand,CounterTotal] =
-			RaftServer[CounterCommand,CounterTotal](3, _timers, net, peers,
+			RaftServer[CounterCommand,CounterTotal](3, _timers, egress, peers,
 					consume sm3, CounterCommands.start()
 					where monitor = consume rmon3, initial_processing = Paused, resume_delay = initial_delay)
 		let raft4: RaftServer[CounterCommand,CounterTotal] =
-			RaftServer[CounterCommand,CounterTotal](4, _timers, net, peers,
+			RaftServer[CounterCommand,CounterTotal](4, _timers, egress, peers,
 					consume sm4, CounterCommands.start()
 					where monitor = consume rmon4, initial_processing = Paused, resume_delay = initial_delay)
 		let raft5: RaftServer[CounterCommand,CounterTotal] =
-			RaftServer[CounterCommand,CounterTotal](5, _timers, net, peers,
+			RaftServer[CounterCommand,CounterTotal](5, _timers, egress, peers,
 					consume sm5, CounterCommands.start()
 					where monitor = consume rmon5, initial_processing = Paused, resume_delay = initial_delay)
 
 		// register replicas in thier network
 		// (TODO move to egress routing)
-		net.register(1, raft1)
-		net.register(2, raft2)
-		net.register(3, raft3)
-		net.register(4, raft4)
-		net.register(5, raft5)
+		egress.register_peer(1, raft1)
+		egress.register_peer(2, raft2)
+		egress.register_peer(3, raft3)
+		egress.register_peer(4, raft4)
+		egress.register_peer(5, raft5)
 
 		// configure the client proxy
 		// (this must happen-before the client is starts;
