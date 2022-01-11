@@ -1091,8 +1091,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 				// if this is a leader we need to get the result back to the client
 				if _mode is Leader then
-					// TODO
-					None
+					_egress.emit(consume state_machine_result)
 				end
 
 				// call the monitor

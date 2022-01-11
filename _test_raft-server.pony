@@ -82,7 +82,7 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 		let peer_one_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
 
 		// set up a monitor to wait for state changes and to trigger the mock leader
@@ -212,7 +212,7 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		h.env.out.print("net address - mock leader: " + mock_leader_id.string())
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
 
 		// set up a monitor to wait for state changes and to trigger the mock leader
@@ -435,7 +435,7 @@ class iso _TestWaitForHeartbeats is UnitTest
 		let peer_two_id: RaftId = 3 // another peer
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate-convert") // expecting RequestVote in the mock following this
@@ -486,7 +486,7 @@ class iso _TestConvertToLeader is UnitTest
 		let peer_two_id: RaftId = 3 // another peer
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate-convert") // expecting RequestVote in the mock following this
@@ -614,7 +614,7 @@ class iso _TestConvertToFollower is UnitTest
 		let listener_candidate_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate") // expecting RequestVote in the mock
@@ -706,7 +706,7 @@ class iso _TestFailLowerTermAppend is UnitTest
 		let listener_leader_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse]()
 		// NB don't call h.complete(...) if using "expect actions"
 		h.expect_action("got-append-false")
@@ -780,7 +780,7 @@ class iso _TestWaitForCanvas is UnitTest
 		let listener_candidate_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse]()
 		// NB don't call h.complete(...) if using "expect actions"
 		h.expect_action("got-election-timeout")
@@ -843,7 +843,7 @@ class iso _TestConvertToCandidate is UnitTest
 		let listener_candidate_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse]()
 		h.expect_action("got-timeout")
 		h.expect_action("got-state")
@@ -930,7 +930,7 @@ class iso _TestRequestVote is UnitTest
 		let listener_candidate_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvNetworkMonitor(h.env)
+		let netmon = EnvEgressMonitor(h.env)
 		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
 
 		// set up a monitor that logs to _env.out
@@ -983,7 +983,7 @@ primitive DummyResponse
 class iso DummyMachine is StateMachine[DummyCommand, DummyResponse]
 	fun ref accept(command: DummyCommand): DummyResponse => DummyResponse
 
-class val EnvNetworkMonitor is NetworkMonitor
+class val EnvEgressMonitor is EgressMonitor
 
 	let _env: Env
 

@@ -27,7 +27,8 @@ interface val EgressMonitor
 class val NopEgressMonitor is EgressMonitor
 
 interface tag RaftEgress[T: Any val, U: Any val] is Egress[(RaftServerSignal[T]|U)]
-	be register_peer(id: RaftId, server: RaftEndpoint[T] tag) => None
+	be register_peer(id: RaftId, server: RaftEndpoint[T] tag
+		, ready:{ref ()} iso = {ref () => None }) => None
 
 actor NopEgress[P: Any val] is Egress[P]
 
@@ -41,14 +42,15 @@ actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 
 	let _monitor: EgressMonitor
 	let _registry_peer: Map[RaftId, RaftEndpoint[T] tag]
-	let _client_delegate: Egress[U] tag
+	let _client_delegate: Egress[U] tag // TODO for performance, we could consider iso router
 
 	new create(monitor: EgressMonitor = NopEgressMonitor, delegate: Egress[U] = NopEgress[U]) =>
 		_monitor = monitor
 		_registry_peer = Map[RaftId, RaftEndpoint[T] tag]
 		_client_delegate = delegate
 
-	be register_peer(id: RaftId, server: RaftEndpoint[T] tag) =>
+	be register_peer(id: RaftId, server: RaftEndpoint[T] tag
+		, ready:{ref ()} iso = {ref () => None }) =>
 		_registry_peer(id) = server
 
 	be emit(msg: (RaftServerSignal[T] | U)) =>
@@ -99,8 +101,10 @@ actor IntraProcessEgress[K: U16 val, P: Any val] is Egress[P]
 		_monitor = monitor
 		_registry= Map[K, Endpoint[P] tag]
 
-	be register(id: K, endpoint: Endpoint[P] tag) =>
+	be register(id: K, endpoint: Endpoint[P] tag
+		, ready:{ref ()} iso = {ref () => None }) =>
 		_registry(id) = endpoint
+		ready()
 
 	be emit(msg: P) =>
 		try

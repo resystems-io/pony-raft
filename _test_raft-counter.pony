@@ -47,9 +47,11 @@ type CounterOp is (CounterAdd | CounterSub)
 class val CounterCommand
 	let opcode: CounterOp
 	let value: U32
-	new val create(op: CounterOp, v: U32) =>
+	let caller: U16
+	new val create(op: CounterOp, v: U32, id: U16 = 0) =>
 		opcode = op
 		value = v
+		caller = id
 
 primitive CounterCommands
 	fun val start(): CounterCommand =>
@@ -57,8 +59,10 @@ primitive CounterCommands
 
 class val CounterTotal
 	let value: U32
-	new val create(v: U32) =>
+	let target: U16
+	new val create(v: U32, t: U16) =>
 		value = v
+		target = t
 
 class CounterMachine is StateMachine[CounterCommand,CounterTotal]
 	"""
@@ -76,13 +80,13 @@ class CounterMachine is StateMachine[CounterCommand,CounterTotal]
 		| CounterAdd => _total = _total + cmd.value
 		| CounterSub => _total = _total - cmd.value
 		end
-		CounterTotal(_total)
+		CounterTotal(_total, cmd.caller)
 
 // -- counter client
 
-actor CounterClient
+actor CounterClient is Endpoint[CounterTotal val]
 
-	let _id: U32
+	let _id: U16
 	let _h: TestHelper
 	let _emitter: NotificationEmitter[CounterCommand]
 
@@ -101,7 +105,7 @@ actor CounterClient
 
 	// TODO introduce correlation tokens or correlation state in order to check monotinicity
 
-	new create(h: TestHelper, id: U32, emitter: NotificationEmitter[CounterCommand], debug: _Debug = _DebugOff) =>
+	new create(h: TestHelper, id: U16, emitter: NotificationEmitter[CounterCommand], debug: _Debug = _DebugOff) =>
 		_debug = debug
 		_id = id
 		_h = h
@@ -151,7 +155,7 @@ actor CounterClient
 		_work = _work - 1
 
 		// send a command
-		_emitter(CounterCommand(CounterAdd, 5))
+		_emitter(CounterCommand(CounterAdd, 5, _id))
 		_sent = _sent + 1
 		if _debug(_DebugNoisy) then _h.env.out.print("client sending count command: " + _sent.string()) end
 
@@ -171,6 +175,7 @@ actor CounterClient
 		end
 
 	be apply(event: CounterTotal) =>
+		// TODO should check that this total was definitely for us... (just as a sanity check)
 		if _stopped then
 			if _debug(_DebugKey) then _h.env.out.print("client got late total...") end
 			return
@@ -178,7 +183,10 @@ actor CounterClient
 		if _debug(_DebugNoisy) then _h.env.out.print("client got total...") end
 		_ack = _ack + 1
 		_expect = _expect - 1
-		if _last and (_expect == 0) then _fin() end
+		if _last and (_expect == 0) then
+			if _debug(_DebugNoisy) then _h.env.out.print("client reached autostop.") end
+			_fin()
+		end
 
 // -- raft monitoring
 
@@ -570,10 +578,18 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let sm4: CounterMachine iso^ = recover iso CounterMachine end
 		let sm5: CounterMachine iso^ = recover iso CounterMachine end
 
-		// allocate a raft peer network
-		let netmon = EnvNetworkMonitor(h.env)
+		// configure client command routing
+		let netmon = EnvEgressMonitor(h.env)
+		let client_egress: IntraProcessEgress[U16, CounterTotal] = IntraProcessEgress[U16,CounterTotal](
+			where
+				monitor = netmon,
+				mapper = {(v:CounterTotal) => (v.target, consume v) }
+			)
+		client_egress.register(1, source1) // potential race since we configure the egress asynchronously
+
+		// configure a raft peer routing
 		let egress: RaftEgress[CounterCommand,CounterTotal] =
-			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon)
+			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon where delegate = client_egress)
 		let peers: Array[RaftId] val = [as RaftId: 1;2;3;4;5]
 
 		// allocate raft servers
@@ -600,7 +616,6 @@ class iso _TestSingleSourceNoFailures is UnitTest
 					where monitor = consume rmon5, initial_processing = Paused, resume_delay = initial_delay)
 
 		// register replicas in thier network
-		// (TODO move to egress routing)
 		egress.register_peer(1, raft1)
 		egress.register_peer(2, raft2)
 		egress.register_peer(3, raft3)
