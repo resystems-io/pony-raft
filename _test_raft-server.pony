@@ -983,7 +983,7 @@ primitive DummyResponse
 class iso DummyMachine is StateMachine[DummyCommand, DummyResponse]
 	fun ref accept(command: DummyCommand): DummyResponse => DummyResponse
 
-class val EnvEgressMonitor is EgressMonitor
+class val EnvEgressMonitor is EgressMonitor[RaftId]
 
 	let _env: Env
 

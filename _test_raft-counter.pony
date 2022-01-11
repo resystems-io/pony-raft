@@ -17,12 +17,10 @@ actor RaftCounterTests is TestList
 	fun tag tests(test: PonyTest) =>
 		test(_TestSansRaft)
 		test(_TestSingleSourceNoFailures)
-		/*
 		test(_TestMultipleSourcesNoFailures)
 		test(_TestOneRaftPauseResume)
 		test(_TestRaftResetVolatile)
 		test(_TestRaftResetPersistent)
-		*/
 
 // -- debugging levels
 
@@ -583,9 +581,9 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let sm5: CounterMachine iso^ = recover iso CounterMachine end
 
 		// configure client command routing
-		let nopmon: EgressMonitor = NopEgressMonitor
-		let envmon: EgressMonitor = EnvEgressMonitor(h.env)
-		let netmon: EgressMonitor = nopmon
+		let nopmon: EgressMonitor[RaftId] = NopEgressMonitor[RaftId]
+		let envmon: EgressMonitor[RaftId] = EnvEgressMonitor(h.env)
+		let netmon: EgressMonitor[RaftId] = nopmon
 		let client_egress: IntraProcessEgress[U16, CounterTotal] = IntraProcessEgress[U16,CounterTotal](
 			where
 				monitor = netmon,
