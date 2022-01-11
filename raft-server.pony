@@ -150,32 +150,32 @@ interface iso RaftServerMonitor[T: Any val]
 	"""
 
 	// -- a general warning from a server... (shouldn't happen)
-	fun ref warning(id: NetworkAddress
+	fun ref warning(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 		, msg: String val
 		) => None
 
 	// -- follow incoming chatter that is recevied by a server
-	fun ref vote_req(id: NetworkAddress, signal: VoteRequest val) => None
-	fun ref vote_res(id: NetworkAddress, signal: VoteResponse) => None
-	fun ref append_req(id: NetworkAddress, signal: AppendEntriesRequest[T] val) => None
-	fun ref append_res(id: NetworkAddress, signal: AppendEntriesResult) => None
-	fun ref install_req(id: NetworkAddress, signal: InstallSnapshotRequest val) => None
-	fun ref install_res(id: NetworkAddress, signal: InstallSnapshotResponse) => None
+	fun ref vote_req(id: RaftId, signal: VoteRequest val) => None
+	fun ref vote_res(id: RaftId, signal: VoteResponse) => None
+	fun ref append_req(id: RaftId, signal: AppendEntriesRequest[T] val) => None
+	fun ref append_res(id: RaftId, signal: AppendEntriesResult) => None
+	fun ref install_req(id: RaftId, signal: InstallSnapshotRequest val) => None
+	fun ref install_res(id: RaftId, signal: InstallSnapshotResponse) => None
 
 	// -- follow client chatter
-	fun ref command_req(id: NetworkAddress
+	fun ref command_req(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 		) => None
-	fun ref command_res(id: NetworkAddress
+	fun ref command_res(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 		) => None
 
 	// -- follow internal state changes and timeouts
-	fun ref mode_changed(id: NetworkAddress
+	fun ref mode_changed(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 		) =>
@@ -185,7 +185,7 @@ interface iso RaftServerMonitor[T: Any val]
 		This can be one of follower, candiate or leader.
 		"""
 		None
-	fun ref timeout_raised(id: NetworkAddress
+	fun ref timeout_raised(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 
@@ -197,7 +197,7 @@ interface iso RaftServerMonitor[T: Any val]
 		i.e. to change from follower to candidate, to re-run an election or to send a heartbeat.
 		"""
 		None
-	fun ref append_accepted(id: NetworkAddress
+	fun ref append_accepted(id: RaftId
 		, term: RaftTerm		// the current term
 		, mode: RaftMode		// the current mode
 
@@ -206,7 +206,7 @@ interface iso RaftServerMonitor[T: Any val]
 		, last_log_index: RaftIndex
 
 		, leader_term: RaftTerm
-		, leader_id: NetworkAddress
+		, leader_id: RaftId
 		, leader_commit_index: RaftIndex
 		, leader_prev_log_index: RaftIndex
 		, leader_prev_log_term: RaftTerm
@@ -222,7 +222,7 @@ interface iso RaftServerMonitor[T: Any val]
 		last_index: the highest index seen by the replica, but not necessarily applied or committed.
 		"""
 		None
-	fun ref state_change(id: NetworkAddress
+	fun ref state_change(id: RaftId
 		, term: RaftTerm								// the current term in which the server is serving
 		, mode: RaftMode								// the operational mode of this server
 
@@ -240,7 +240,7 @@ interface iso RaftServerMonitor[T: Any val]
 		None
 
 	// -- follow configuration changes
-	fun ref control_raised(id: NetworkAddress
+	fun ref control_raised(id: RaftId
 		, term: RaftTerm		// the current term
 		, mode: RaftMode		// the current mode
 
@@ -264,7 +264,7 @@ trait iso RaftServerMonitorChain[T: Any val]
 
 	fun ref _chain() : (RaftServerMonitor[T] | None)
 
-	fun ref _chain_warning(id: NetworkAddress
+	fun ref _chain_warning(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 		, msg: String val
@@ -273,49 +273,49 @@ trait iso RaftServerMonitorChain[T: Any val]
 			ch.warning(id, term, mode, msg)
 		end
 
-	fun ref _chain_vote_req(id: NetworkAddress, signal: VoteRequest val) =>
+	fun ref _chain_vote_req(id: RaftId, signal: VoteRequest val) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.vote_req(id, signal)
 		end
-	fun ref _chain_vote_res(id: NetworkAddress, signal: VoteResponse) =>
+	fun ref _chain_vote_res(id: RaftId, signal: VoteResponse) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.vote_res(id, signal)
 		end
-	fun ref _chain_append_req(id: NetworkAddress, signal: AppendEntriesRequest[T] val) =>
+	fun ref _chain_append_req(id: RaftId, signal: AppendEntriesRequest[T] val) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.append_req(id, consume signal)
 		end
-	fun ref _chain_append_res(id: NetworkAddress, signal: AppendEntriesResult) =>
+	fun ref _chain_append_res(id: RaftId, signal: AppendEntriesResult) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.append_res(id, signal)
 		end
-	fun ref _chain_install_req(id: NetworkAddress, signal: InstallSnapshotRequest val) =>
+	fun ref _chain_install_req(id: RaftId, signal: InstallSnapshotRequest val) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.install_req(id, signal)
 		end
-	fun ref _chain_install_res(id: NetworkAddress, signal: InstallSnapshotResponse) =>
+	fun ref _chain_install_res(id: RaftId, signal: InstallSnapshotResponse) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.install_res(id, signal)
 		end
 
-	fun ref _chain_command_req(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
+	fun ref _chain_command_req(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.command_req(id, term, mode)
 		end
-	fun ref _chain_command_res(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
+	fun ref _chain_command_res(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.command_res(id, term, mode)
 		end
 
-	fun ref _chain_mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
+	fun ref _chain_mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.mode_changed(id, term, mode)
 		end
-	fun ref _chain_timeout_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
+	fun ref _chain_timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.timeout_raised(id, term, mode, timeout)
 		end
-	fun ref _chain_append_accepted(id: NetworkAddress
+	fun ref _chain_append_accepted(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
 
@@ -324,7 +324,7 @@ trait iso RaftServerMonitorChain[T: Any val]
 		, last_log_index: RaftIndex
 
 		, leader_term: RaftTerm
-		, leader_id: NetworkAddress
+		, leader_id: RaftId
 		, leader_commit_index: RaftIndex
 		, leader_prev_log_index: RaftIndex
 		, leader_prev_log_term: RaftTerm
@@ -339,7 +339,7 @@ trait iso RaftServerMonitorChain[T: Any val]
 				, appended
 			)
 		end
-	fun ref _chain_state_change(id: NetworkAddress
+	fun ref _chain_state_change(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
 
@@ -355,7 +355,7 @@ trait iso RaftServerMonitorChain[T: Any val]
 			)
 		end
 
-	fun ref _chain_control_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
+	fun ref _chain_control_raised(id: RaftId, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
 		match _chain() | (let ch: RaftServerMonitor[T]) =>
 			ch.control_raised(id, term, mode, control)
 		end
@@ -417,10 +417,10 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 	let _rand: Random
 	let _timers: Timers
 
-	let _id: NetworkAddress
+	let _id: RaftId
 	let _egress: RaftEgress[T,U]
 	let _majority: USize
-	let _peers: Array[NetworkAddress]					// other servers in the raft
+	let _peers: Array[RaftId]					// other servers in the raft
 
 	let _monitor: RaftServerMonitor[T] iso
 	let _machine: StateMachine[T,U] iso					// implements the application logic
@@ -433,7 +433,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 	var _mode: RaftMode
 	var _mode_timer: Timer tag
-	var _last_known_leader: NetworkAddress
+	var _last_known_leader: RaftId
 
 	var _processing: RaftProcessing
 	let _resume_delay: (U64 | None) // an initial delay added to timers when the raft resumes
@@ -442,10 +442,10 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 	// FIXME need to provide a way for registering replicas with each other (fixed at first, cluster changes later)
 
-	new create(id: NetworkAddress
+	new create(id: RaftId
 		, timers: Timers
 		, egress: RaftEgress[T,U]
-		, peers: Array[NetworkAddress] val
+		, peers: Array[RaftId] val
 		, machine: StateMachine[T,U] iso
 		, start_command: T // used to put the zeroth entry into the log (Raft officially starts at 1)
 		, monitor: RaftServerMonitor[T] iso = NopRaftServerMonitor[T]
@@ -479,7 +479,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 		// copy peers but remove self
 		_majority = peers.size().shr(1) + 1 // we assume that the peer set odd in size
-		_peers = try ArrayWithout[NetworkAddress].without(id, peers)? else [as NetworkAddress: id] end
+		_peers = try ArrayWithout[RaftId].without(id, peers)? else [as RaftId: id] end
 
 		// record the initial state machine
 		_machine = consume machine
@@ -661,7 +661,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 			// check if we could potentially vote for this candidate
 			let could_vote: Bool = match persistent.voted_for
 				| let s: None => true
-				| let s: NetworkAddress => s == votereq.candidate_id
+				| let s: RaftId => s == votereq.candidate_id
 				end
 			ires.vote_granted = if could_vote then
 					// check if the candidate's log is at least as up-to-date as what we have here
@@ -1037,7 +1037,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		| (let ls: VolatileLeaderState) =>
 			for pi in Range(0, _peers.size()) do
 				try
-					let p: NetworkAddress = _peers(pi)?
+					let p: RaftId = _peers(pi)?
 					let ni: RaftIndex = ls.next_index(pi)?
 					let tm: U64 = ls.last_millis(pi)?
 					// note - we stop the stampede using a timestamp per peer

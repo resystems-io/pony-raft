@@ -204,14 +204,14 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 
 	fun ref _chain() : (RaftServerMonitor[CounterCommand] | None) => _chain_link
 
-	fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
+	fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		// e.g. "raft-1:term=1;mode=leader"
 		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
 		if _debug(_DebugKey) then _h.env.out.print(t) end
 		_h.complete_action(t)
 		_chain_mode_changed(id, term, mode)
 
-	fun ref control_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
+	fun ref control_raised(id: RaftId, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
 		let tb:String val = "raft-"  + id.string() + ":control:" + control.string()
 		match control
 		| Resumed =>
@@ -229,13 +229,13 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			if _debug(_DebugKey) then _h.env.out.print(t) end
 		end
 
-	fun ref timeout_raised(id: NetworkAddress, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
+	fun ref timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
 		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
 			+ ";timeout=" + timeout.string()
 		if _debug(_DebugKey) then _h.env.out.print(t) end
 		_h.complete_action(t)
 
-	fun ref command_req(id: NetworkAddress, term: RaftTerm, mode: RaftMode) =>
+	fun ref command_req(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		// detect if this raft got messages directly from the client after the last resume
 		if _client_messages_after_resume == false then
 			_client_messages_after_resume = true
@@ -246,7 +246,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			_h.complete_action(t)
 		end
 
-	fun ref append_req(id: NetworkAddress, signal: AppendEntriesRequest[CounterCommand] val) =>
+	fun ref append_req(id: RaftId, signal: AppendEntriesRequest[CounterCommand] val) =>
 		// detect if this raft got append messages from the leader after the last resume
 		if _debug(_DebugKey) then
 			_h.env.out.print("raft-" + id.string()
@@ -281,7 +281,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			_h.complete_action(ts)
 		end
 
-	fun ref append_res(id: NetworkAddress, signal: AppendEntriesResult) =>
+	fun ref append_res(id: RaftId, signal: AppendEntriesResult) =>
 		let t1:String val = "raft-"  + id.string() + ":appendres"
 			+ ";.term=" + signal.term.string()
 			+ ";.success=" + signal.success.string()
@@ -294,14 +294,14 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		end
 		_h.complete_action(t1)
 
-	fun ref append_accepted(id: NetworkAddress
+	fun ref append_accepted(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
 		, last_applied_index: RaftIndex
 		, commit_index: RaftIndex
 		, last_log_index: RaftIndex
 		, leader_term: RaftTerm
-		, leader_id: NetworkAddress
+		, leader_id: RaftId
 		, leader_commit_index: RaftIndex
 		, leader_prev_log_index: RaftIndex
 		, leader_prev_log_term: RaftTerm
@@ -344,7 +344,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		_h.complete_action(t2)
 		_h.complete_action(t3)
 
-	fun ref state_change(id: NetworkAddress
+	fun ref state_change(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
 		, last_applied_index: RaftIndex
@@ -363,7 +363,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		_h.complete_action(tb)
 		_h.complete_action(tf)
 
-	fun ref warning(id: NetworkAddress
+	fun ref warning(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
 		, msg: String val) =>
@@ -547,7 +547,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		// (add this into the monitor chain)
 		// (note, because we contrive raft-1 to be the leader, we only chain the first monitor)
 		let starter = object iso is RaftServerMonitor[CounterCommand]
-				fun ref mode_changed(id: NetworkAddress, term: RaftTerm, mode: RaftMode) => None
+				fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) => None
 					if (id == 1) and (term == 1) and (mode is Leader) then
 						if _DebugNoisy(_DebugKey) then h.env.out.print("leader detected, starting client") end
 						// drive the client (start once we detect a leader)
@@ -574,7 +574,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let netmon = EnvNetworkMonitor(h.env)
 		let egress: RaftEgress[CounterCommand,CounterTotal] =
 			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon)
-		let peers: Array[NetworkAddress] val = [as NetworkAddress: 1;2;3;4;5]
+		let peers: Array[RaftId] val = [as RaftId: 1;2;3;4;5]
 
 		// allocate raft servers
 		let initial_delay: U64 = 400_000_000 // 0.4 seconds for raft servers other than raft-1

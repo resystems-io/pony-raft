@@ -18,7 +18,7 @@ interface tag Egress[P: Any val]
 		None
 
 interface tag RaftEgress[T: Any val, U: Any val] is Egress[(RaftServerSignal[T]|U)]
-	be register_peer(id: NetworkAddress, server: RaftEndpoint[T] tag) => None
+	be register_peer(id: RaftId, server: RaftEndpoint[T] tag) => None
 
 actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 	"""
@@ -29,18 +29,18 @@ actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 	"""
 
 	let _monitor: NetworkMonitor
-	let _registry_peer: Map[NetworkAddress, RaftEndpoint[T] tag]
-	let _registry_client: Map[NetworkAddress, Endpoint[U] tag]
+	let _registry_peer: Map[RaftId, RaftEndpoint[T] tag]
+	let _registry_client: Map[RaftId, Endpoint[U] tag]
 
 	new create(monitor: NetworkMonitor = NopNetworkMonitor) =>
 		_monitor = monitor
-		_registry_peer = Map[NetworkAddress, RaftEndpoint[T] tag]
-		_registry_client = Map[NetworkAddress, Endpoint[U] tag]
+		_registry_peer = Map[RaftId, RaftEndpoint[T] tag]
+		_registry_client = Map[RaftId, Endpoint[U] tag]
 
-	be register_peer(id: NetworkAddress, server: RaftEndpoint[T] tag) =>
+	be register_peer(id: RaftId, server: RaftEndpoint[T] tag) =>
 		_registry_peer(id) = server
 
-	be register_client(id: NetworkAddress, client: Endpoint[U] tag) =>
+	be register_client(id: RaftId, client: Endpoint[U] tag) =>
 		_registry_client(id) = client
 
 	be emit(msg: (RaftServerSignal[T] | U)) =>
@@ -53,12 +53,12 @@ actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 		let id = match m
 			| (let v: RaftTarget val) => v.target()
 			else
-				_monitor.dropped(NetworkAddresses.unknown())
+				_monitor.dropped(RaftIdentifiers.unknown())
 				return
 			end
 		_route_peer(id, m)
 
-	fun ref _route_peer(id: NetworkAddress, m: RaftServerSignal[T]) =>
+	fun ref _route_peer(id: RaftId, m: RaftServerSignal[T]) =>
 		try
 			_registry_peer(id)?.apply(consume m)
 			_monitor.sent(id)
