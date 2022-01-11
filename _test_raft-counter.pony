@@ -17,10 +17,12 @@ actor RaftCounterTests is TestList
 	fun tag tests(test: PonyTest) =>
 		test(_TestSansRaft)
 		test(_TestSingleSourceNoFailures)
+		/*
 		test(_TestMultipleSourcesNoFailures)
 		test(_TestOneRaftPauseResume)
 		test(_TestRaftResetVolatile)
 		test(_TestRaftResetPersistent)
+		*/
 
 // -- debugging levels
 
@@ -256,7 +258,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 
 	fun ref append_req(id: RaftId, signal: AppendEntriesRequest[CounterCommand] val) =>
 		// detect if this raft got append messages from the leader after the last resume
-		if _debug(_DebugKey) then
+		if _debug(_DebugNoisy) then
 			_h.env.out.print("raft-" + id.string()
 				+ ":appendreq"
 				+ ";term=" + signal.term.string()
@@ -297,7 +299,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			+ ";.prev_log_index=" + signal.prev_log_index.string()
 			+ ";.entries_count=" + signal.entries_count.string()
 			+ ";.trace_seq=" + signal.trace_seq.string()
-		if _debug(_DebugKey) then
+		if _debug(_DebugNoisy) then
 			_h.env.out.print(t1)
 		end
 		_h.complete_action(t1)
@@ -316,7 +318,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		, leader_entry_count: USize
 		, appended: Bool
 		) =>
-		if _debug(_DebugKey) then
+		if _debug(_DebugNoisy) then
 			_h.env.out.print("raft-" + id.string()
 				+ ":term=" + term.string()
 				+ ":mode=" + mode.string()
@@ -343,10 +345,12 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			+ ";count=" + leader_entry_count.string()
 		let t3:String val = tb
 			+ ";prev_log_index=" + leader_prev_log_index.string()
-		if _debug(_DebugKey) then
+		if _debug(_DebugNoisy) then
 			_h.env.out.print(t1)
-			_h.env.out.print(t2)
 			_h.env.out.print(t3)
+		end
+		if _debug(_DebugNoisy) then
+			_h.env.out.print(t2)
 		end
 		_h.complete_action(t1)
 		_h.complete_action(t2)
@@ -549,7 +553,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 			end
 
 		// allocate a client
-		let source1 = CounterClient(h, 1, cem1 where debug = _DebugNoisy)
+		let source1 = CounterClient(h, 1, cem1 where debug = _DebugOff)
 
 		// detect when the raft gets its first leader and kick off client test work
 		// (add this into the monitor chain)
@@ -557,7 +561,7 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let starter = object iso is RaftServerMonitor[CounterCommand]
 				fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) => None
 					if (id == 1) and (term == 1) and (mode is Leader) then
-						if _DebugNoisy(_DebugKey) then h.env.out.print("leader detected, starting client") end
+						if _DebugOff(_DebugKey) then h.env.out.print("leader detected, starting client") end
 						// drive the client (start once we detect a leader)
 						source1.work(50)
 						source1.work(50, true)
@@ -565,11 +569,11 @@ class iso _TestSingleSourceNoFailures is UnitTest
 			end
 
 		// allocate server monitors
-		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy, chain = consume starter)
-		let rmon2: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
-		let rmon3: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
-		let rmon4: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
-		let rmon5: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugNoisy)
+		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff, chain = consume starter)
+		let rmon2: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon3: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon4: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon5: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
 
 		// allocate state machines
 		let sm1: CounterMachine iso^ = recover iso CounterMachine end
@@ -579,7 +583,9 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		let sm5: CounterMachine iso^ = recover iso CounterMachine end
 
 		// configure client command routing
-		let netmon = EnvEgressMonitor(h.env)
+		let nopmon: EgressMonitor = NopEgressMonitor
+		let envmon: EgressMonitor = EnvEgressMonitor(h.env)
+		let netmon: EgressMonitor = nopmon
 		let client_egress: IntraProcessEgress[U16, CounterTotal] = IntraProcessEgress[U16,CounterTotal](
 			where
 				monitor = netmon,
