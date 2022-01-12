@@ -43,18 +43,20 @@ actor IntraProcessRaftServerEgress[T: Any val, U: Any val] is RaftEgress[T,U]
 	U = the state-machine response.
 	"""
 
-	let _monitor: EgressMonitor[RaftId]
 	let _registry_peer: Map[RaftId, RaftEndpoint[T] tag]
+	let _monitor: EgressMonitor[RaftId]
 	let _client_delegate: Egress[U] tag // TODO for performance, we could consider iso router
 
 	new create(monitor: EgressMonitor[RaftId] = NopEgressMonitor[RaftId], delegate: Egress[U] = NopEgress[U]) =>
-		_monitor = monitor
 		_registry_peer = Map[RaftId, RaftEndpoint[T] tag]
-		_client_delegate = delegate
+		_monitor = consume monitor
+		_client_delegate = consume delegate
 
 	be register_peer(id: RaftId, server: RaftEndpoint[T] tag
 		, ready:{ref ()} iso = {ref () => None }) =>
 		_registry_peer(id) = server
+		// signal the inline callback (can be used for synchronisation)
+		ready()
 
 	be emit(msg: (RaftServerSignal[T] | U)) =>
 		match consume msg
@@ -109,6 +111,7 @@ actor IntraProcessEgress[K: (Hashable val & Equatable[K] val), P: Any val] is Eg
 	be register(id: K, endpoint: Endpoint[P] tag
 		, ready:{ref ()} iso = {ref () => None }) =>
 		_registry(id) = endpoint
+		// signal the inline callback (can be used for synchronisation)
 		ready()
 
 	be emit(msg: P) =>
