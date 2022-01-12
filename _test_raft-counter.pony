@@ -309,7 +309,7 @@ class iso _CounterRaftMonitor is RaftServerMonitor[CounterCommand]
 		_h.complete_action(t1)
 		_chain.append_res(id, signal)
 
-	fun ref append_accepted(id: RaftId
+	fun ref append_processed(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
 		, last_applied_index: RaftIndex
@@ -360,7 +360,7 @@ class iso _CounterRaftMonitor is RaftServerMonitor[CounterCommand]
 		_h.complete_action(t1)
 		_h.complete_action(t2)
 		_h.complete_action(t3)
-		_chain.append_accepted(
+		_chain.append_processed(
 				id, term, mode
 			, last_applied_index, commit_index, last_log_index
 			, leader_term, leader_id, leader_commit_index

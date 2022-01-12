@@ -196,7 +196,7 @@ interface iso RaftServerMonitor[T: Any val]
 		i.e. to change from follower to candidate, to re-run an election or to send a heartbeat.
 		"""
 		None
-	fun ref append_accepted(id: RaftId
+	fun ref append_processed(id: RaftId
 		, term: RaftTerm		// the current term
 		, mode: RaftMode		// the current mode
 
@@ -760,7 +760,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		let commit_index = _commit_index()
 		let last_applied_index = _last_applied_index()
 
-		_monitor.append_accepted(_id
+		_monitor.append_processed(_id
 			where
 				term = _current_term()
 			, mode = _current_mode()
@@ -1251,7 +1251,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		persistent.log.push(le)
 		let ll: RaftIndex = _last_log_index()
 		// notify monitor that we accepted a command into the log (as a leader)
-		_monitor.append_accepted(_id
+		_monitor.append_processed(_id
 			where
 				term = _current_term()
 			, mode = _current_mode()

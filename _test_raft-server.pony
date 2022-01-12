@@ -358,7 +358,7 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 			_h.fail("follower should not become a leader")
 		end
 
-	fun ref append_accepted(id: RaftId
+	fun ref append_processed(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
 
