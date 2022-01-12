@@ -1107,7 +1107,7 @@ class iso _TestOneRaftPauseResume is UnitTest
 		for raftid in Range[RaftId](1,6) do
 			// allocate server monitors
 			let rmon: RaftServerMonitor[CounterCommand] iso^ = if raftid == 1 then
-				_CounterRaftMonitor(h where debug = _DebugOff
+				_CounterRaftMonitor(h where debug = _DebugNoisy
 					, chain = (starter = NopRaftServerMonitor[CounterCommand]))
 			elseif raftid == 3 then
 				_CounterRaftMonitor(h where debug = _DebugNoisy

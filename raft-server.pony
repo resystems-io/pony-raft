@@ -803,7 +803,18 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 					ls.match_index(p)? = new_next
 				else
 					// if AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)
-					ls.next_index(p)? = ls.next_index(p)? - 1
+					var ni: RaftIndex = ls.next_index(p)?
+					if ni > 0 then ni = ni - 1 end
+					ls.next_index(p)? = ni
+					// TODO remove the following warning.... just for debugging
+					_monitor.warning(_id, _current_term(), _current_mode(),
+						"rewinding"
+							+ " appendres.peer_id=" + appendres.peer_id.string()
+							+ " appendres.prev_log_index=" + appendres.prev_log_index.string()
+							+ " appendres.entries_count=" + appendres.entries_count.string()
+							+ " new_next_index=" + ni.string()
+						)
+					// TODO REVIEW should we trigger a rewind for a standard hearbeat? i.e. entries_count == 0
 				end
 			else
 				// FIXME we should fail if we get an unknown response
@@ -859,7 +870,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 			append.trace_seq = (_trace_seq = _trace_seq + 1)
 			append.term = persistent.current_term
 			append.prev_log_index = lli // based on the fact that next-index is set to lli + 1
-			append.prev_log_term = try persistent.log(append.prev_log_index)?.term else 0 end
+			append.prev_log_term = try persistent.log(append.prev_log_index)?.term else 0 end // TODO review, should we rather send from next_index ?
 			append.leader_commit = volatile.commit_index
 			append.leader_id = _id
 			append.entries.clear() // Note, entries is `iso`
@@ -967,6 +978,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 						// [ decide how many entries to send e.g. from ni with a max of 100, see: _max_append_batch ]
 						// i.e. we want [ ni, min(ni+max, lli+1) )
 						let send_count = _max_append_batch.min((lli + 1) - ni)
+						// FIXME remove the following debugging
 						let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T](send_count) end
 						append.target_follower_id = p
 						append.trace_seq = (_trace_seq = _trace_seq + 1)
@@ -976,6 +988,15 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 						append.prev_log_index = ni - 1
 						append.prev_log_term = persistent.log(append.prev_log_index)?.term
+
+						// debug tracing
+						_monitor.warning(_id, _current_term(), _current_mode(), "calc"
+							+ " trace_seq=" + append.trace_seq.string()
+							+ " peer_id=" + p.string()
+							+ " send_count=" + send_count.string()
+							+ " next_index=" + ni.string()
+							+ " lli=" + lli.string()
+							)
 
 						// copy/link entries to send
 						for idx in Range(ni, ni + send_count) do
