@@ -5,6 +5,7 @@
  */
 use "ponytest"
 use "time"
+use "collections"
 
 actor RaftCounterTests is TestList
 
@@ -191,69 +192,72 @@ actor CounterClient is Endpoint[CounterTotal val]
 
 // -- raft monitoring
 
-class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServerMonitorChain[CounterCommand])
+class iso _CounterRaftMonitor is RaftServerMonitor[CounterCommand]
 
 	let _h: TestHelper
 	let _debug: _Debug
-	let _chain_link: (RaftServerMonitor[CounterCommand] | None)
+	let _chain: RaftServerMonitor[CounterCommand]
 
-	var _resumed: U32
+	var _controlled: MapIs[RaftControl,U32]
 	var _client_messages_after_resume: Bool
 	var _append_heartbeat_after_resume: Bool
 	var _append_content_after_resume: Bool
 
-	new iso create(h: TestHelper, chain: (RaftServerMonitor[CounterCommand] | None) = None, debug: _Debug = _DebugOff) =>
+	new iso create(h: TestHelper, chain: RaftServerMonitor[CounterCommand] iso = NopRaftServerMonitor[CounterCommand], debug: _Debug = _DebugOff) =>
 		_h = h
 		_debug = debug
-		_chain_link = consume chain
-		_resumed = 0
+		_chain = consume chain
+		_controlled = MapIs[RaftControl,U32]
 		_client_messages_after_resume = false
 		_append_heartbeat_after_resume = false
 		_append_content_after_resume = false
-
-	fun ref _chain() : (RaftServerMonitor[CounterCommand] | None) => _chain_link
 
 	fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		// e.g. "raft-1:term=1;mode=leader"
 		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
 		if _debug(_DebugKey) then _h.env.out.print(t) end
 		_h.complete_action(t)
-		_chain_mode_changed(id, term, mode)
+		_chain.mode_changed(id, term, mode)
 
 	fun ref control_raised(id: RaftId, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
 		let tb:String val = "raft-"  + id.string() + ":control:" + control.string()
+		let cc: U32 = _controlled.upsert(control, 1, {(current, provided) => current + provided })
+		// detect if this raft was resumed
+		// e.g. "raft-1:resumed:1"
+		let tc:String val = tb + ":" + cc.string()
+		if _debug(_DebugKey) then _h.env.out.print(tb) end
+		if _debug(_DebugNoisy) then _h.env.out.print(tc) end
+		_h.complete_action(tb)
+		_h.complete_action(tc) // with the count
+
 		match control
 		| Resumed =>
-			// detect if this raft was resumed
-			_resumed = _resumed + 1
-			// e.g. "raft-1:resumed:1"
-			let t:String val = tb + ":" + _resumed.string()
-			if _debug(_DebugKey) then _h.env.out.print(t) end
-			_h.complete_action(t)
 			_client_messages_after_resume = false
 			_append_heartbeat_after_resume = false
 			_append_content_after_resume = false
-		else
-			let t:String val = tb
-			if _debug(_DebugKey) then _h.env.out.print(t) end
 		end
+		_chain.control_raised(id, term, mode, control)
 
 	fun ref timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
 		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
 			+ ";timeout=" + timeout.string()
 		if _debug(_DebugKey) then _h.env.out.print(t) end
 		_h.complete_action(t)
+		_chain.timeout_raised(id, term, mode, timeout)
 
 	fun ref command_req(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		// detect if this raft got messages directly from the client after the last resume
 		if _client_messages_after_resume == false then
 			_client_messages_after_resume = true
 			// e.g "raft-1:resumed:1;client-messages-after-resume=true"
-			let t:String val = "raft-"  + id.string() + ":resumed:" + _resumed.string()
+			let t:String val = "raft-"  + id.string() + ":resumed:" + _resumed().string()
 				+ ";client-messages-after-resume=" + _client_messages_after_resume.string()
 			if _debug(_DebugKey) then _h.env.out.print(t) end
 			_h.complete_action(t)
 		end
+		_chain.command_req(id, term, mode)
+
+	fun ref _resumed(): U32 => try _controlled(Resumed)? else 0 end
 
 	fun ref append_req(id: RaftId, signal: AppendEntriesRequest[CounterCommand] val) =>
 		// detect if this raft got append messages from the leader after the last resume
@@ -273,14 +277,14 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			if not _append_heartbeat_after_resume then
 				_append_heartbeat_after_resume = true
 				// e.g "raft-1:resumed:1;append-messages-after-resume=true;heartbeat"
-				t = "raft-"  + id.string() + ":resumed:" + _resumed.string()
+				t = "raft-"  + id.string() + ":resumed:" + _resumed().string()
 					+ ";append-messages-after-resume=" + _append_heartbeat_after_resume.string() + ";heartbeat"
 			end
 		else
 			if not _append_content_after_resume then
 				_append_content_after_resume = true
 				// e.g "raft-1:resumed:1;append-messages-after-resume=true;content"
-				t = "raft-"  + id.string() + ":resumed:" + _resumed.string()
+				t = "raft-"  + id.string() + ":resumed:" + _resumed().string()
 					+ ";append-messages-after-resume=" + _append_content_after_resume.string() + ";content"
 			end
 		end
@@ -289,6 +293,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			if _debug(_DebugKey) then _h.env.out.print(ts) end
 			_h.complete_action(ts)
 		end
+		_chain.append_req(id, signal)
 
 	fun ref append_res(id: RaftId, signal: AppendEntriesResult) =>
 		let t1:String val = "raft-"  + id.string() + ":appendres"
@@ -302,6 +307,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 			_h.env.out.print(t1)
 		end
 		_h.complete_action(t1)
+		_chain.append_res(id, signal)
 
 	fun ref append_accepted(id: RaftId
 		, term: RaftTerm
@@ -354,6 +360,12 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		_h.complete_action(t1)
 		_h.complete_action(t2)
 		_h.complete_action(t3)
+		_chain.append_accepted(
+				id, term, mode
+			, last_applied_index, commit_index, last_log_index
+			, leader_term, leader_id, leader_commit_index
+			, leader_prev_log_index, leader_prev_log_term, leader_entry_count
+			, appended)
 
 	fun ref state_change(id: RaftId
 		, term: RaftTerm
@@ -373,6 +385,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		if _debug(_DebugKey) then _h.env.out.print(tf) end
 		_h.complete_action(tb)
 		_h.complete_action(tf)
+		_chain.state_change(id, term, mode, last_applied_index, commit_index, last_log_index, update_log_index)
 
 	fun ref warning(id: RaftId
 		, term: RaftTerm
@@ -386,6 +399,7 @@ class iso _CounterRaftMonitor is (RaftServerMonitor[CounterCommand] & RaftServer
 		end
 		_h.complete_action(t1)
 		_h.complete_action(t2)
+		_chain.warning(id, term, mode, msg)
 
 // -- counter raft tests
 
@@ -777,6 +791,11 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 					end
 			end
 
+		// configure a raft peer routing
+		let egress: RaftEgress[CounterCommand,CounterTotal] =
+			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon where delegate = client_egress)
+		let peers: Array[RaftId] val = [as RaftId: 1;2;3;4;5]
+
 		// allocate server monitors
 		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff, chain = consume starter)
 		let rmon2: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
@@ -790,11 +809,6 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 		let sm3: CounterMachine iso^ = recover iso CounterMachine end
 		let sm4: CounterMachine iso^ = recover iso CounterMachine end
 		let sm5: CounterMachine iso^ = recover iso CounterMachine end
-
-		// configure a raft peer routing
-		let egress: RaftEgress[CounterCommand,CounterTotal] =
-			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon where delegate = client_egress)
-		let peers: Array[RaftId] val = [as RaftId: 1;2;3;4;5]
 
 		// allocate raft servers
 		let initial_delay: U64 = 400_000_000 // 0.4 seconds for raft servers other than raft-1
@@ -882,57 +896,165 @@ class iso _TestOneRaftPauseResume is UnitTest
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
-		// all client should see all messages being processed
+		// set expectations (halting-condition)
+		// (all client should see all their messages being processed)
 		h.expect_action("source-1:start")
-		h.expect_action("source-1:end:sent=100")
-		h.expect_action("source-1:end:ack=100")
+		h.expect_action("source-1:end:sent=50")
+		h.expect_action("source-1:end:ack=50")
 		h.expect_action("source-1:end:timeouts=false")
+		// ..
 		h.expect_action("source-2:start")
-		h.expect_action("source-2:end:sent=100")
-		h.expect_action("source-2:end:ack=100")
+		h.expect_action("source-2:end:sent=20")
+		h.expect_action("source-2:end:ack=20")
 		h.expect_action("source-2:end:timeouts=false")
+		// ..
 		h.expect_action("source-3:start")
-		h.expect_action("source-3:end:sent=100")
-		h.expect_action("source-3:end:ack=100")
+		h.expect_action("source-3:end:sent=30")
+		h.expect_action("source-3:end:ack=30")
 		h.expect_action("source-3:end:timeouts=false")
-		h.expect_action("source-4:start")
-		h.expect_action("source-4:end:sent=100")
-		h.expect_action("source-4:end:ack=100")
-		h.expect_action("source-4:end:timeouts=false")
-		h.expect_action("source-5:start")
-		h.expect_action("source-5:end:sent=100")
-		h.expect_action("source-5:end:ack=100")
-		h.expect_action("source-5:end:timeouts=false")
+
+		// leader election
+		h.expect_action("raft-*:term=1;leader-detected")
+		h.expect_action("raft-1:term=1;mode=leader")
+		h.expect_action("raft-2:term=1;mode=follower")
+		h.expect_action("raft-3:term=1;mode=follower")
+		h.expect_action("raft-4:term=1;mode=follower")
+		h.expect_action("raft-5:term=1;mode=follower")
+
+		// initial start-up
+		h.expect_action("raft-1:control:paused:1")
+		h.expect_action("raft-1:control:resumed:1")
+		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
+		h.expect_action("raft-2:control:paused:1")
+		h.expect_action("raft-2:control:resumed:1")
+		h.expect_action("raft-2:resumed:1;append-messages-after-resume=true;content")
+		h.expect_action("raft-3:control:paused:1")
+		h.expect_action("raft-3:control:resumed:1")
+		h.expect_action("raft-3:resumed:1;append-messages-after-resume=true;content")
+		h.expect_action("raft-4:control:paused:1")
+		h.expect_action("raft-4:control:resumed:1")
+		h.expect_action("raft-4:resumed:1;append-messages-after-resume=true;content")
+		h.expect_action("raft-5:control:paused:1")
+		h.expect_action("raft-5:control:resumed:1")
+		h.expect_action("raft-5:resumed:1;append-messages-after-resume=true;content")
 
 		// pause and resume a (non-leader) server
-		h.expect_action("raft-1:resumed:1")
-		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
-		h.expect_action("raft-1:paused:1")
-		h.expect_action("raft-1:resumed:2")
+		h.expect_action("raft-3:control:paused:2")
+		h.expect_action("raft-3:control:resumed:2")
 		// in order to check that we paused and resumed during the processing,
 		// we explicity monitor for the receipt of client state-machine commands
 		// after a resume cycle change.
-		h.expect_action("raft-1:resumed:2;client-messages-after-resume=true")
-		h.expect_action("raft-1:paused:2")
-		// other servers
-		h.expect_action("raft-2:resumed:1")
-		h.expect_action("raft-2:resumed:1;client-messages-after-resume=true")
-		h.expect_action("raft-2:paused:1")
-		h.expect_action("raft-3:resumed:1")
-		h.expect_action("raft-3:resumed:1;client-messages-after-resume=true")
-		h.expect_action("raft-3:paused:1")
-		h.expect_action("raft-4:resumed:1")
-		h.expect_action("raft-4:resumed:1;client-messages-after-resume=true")
-		h.expect_action("raft-4:paused:1")
-		h.expect_action("raft-5:resumed:1")
-		h.expect_action("raft-5:resumed:1;client-messages-after-resume=true")
-		h.expect_action("raft-5:paused:1")
+		h.expect_action("raft-3:resumed:2;append-messages-after-resume=true;content")
+		h.expect_action("raft-3:control:resumed:3") // finishing touch
 
-		// TODO allocate server monitors
-		// TODO allocate clients and servers
-		// TODO control server failure
-		h.fail_action("not-yet-implemented")
-		// TODO register dispose
+		// create a local raft proxy
+		// (this appears as a "direct state-machine" but actually delegates to the raft)
+		let raft_proxy = _RaftProxy
+
+		// allocate clients
+		let source1 = CounterClient(h, 1, raft_proxy where debug = _DebugOff)
+		let source2 = CounterClient(h, 2, raft_proxy where debug = _DebugOff)
+		let source3 = CounterClient(h, 3, raft_proxy where debug = _DebugOff)
+
+		// configure client command routing
+		let nopmon: EgressMonitor[RaftId] = NopEgressMonitor[RaftId]
+		let envmon: EgressMonitor[RaftId] = EnvEgressMonitor(h.env)
+		let netmon: EgressMonitor[RaftId] = nopmon
+		let client_egress: IntraProcessEgress[U16, CounterTotal] = IntraProcessEgress[U16,CounterTotal](
+			where
+				monitor = netmon,
+				mapper = {(v:CounterTotal) => (v.target, consume v) }
+			)
+		// TODO REVIEW potential race since we configure the egress asynchronously
+		client_egress.register(1, source1)
+		client_egress.register(2, source2)
+		client_egress.register(3, source3)
+
+		// -- raft servers
+
+		// detect when the raft gets its first leader and kick off client test work
+		// (add this into the monitor chain)
+		// (note, because we contrive raft-1 to be the leader, we only chain the first monitor)
+		var starter: RaftServerMonitor[CounterCommand] iso = object iso is RaftServerMonitor[CounterCommand]
+				fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) => None
+					if (id == 1) and (term == 1) and (mode is Leader) then
+						if _DebugOff(_DebugKey) then
+							h.env.out.print("leader detected, starting client")
+						end
+						h.complete_action("raft-*:term=" + term.string() + ";leader-detected")
+						// drive the client (start once we detect a leader)
+						source1.work(25)
+						source2.work(10)
+						source3.work(10)
+						source1.work(25, true)
+						source2.work(10, true)
+						source3.work(20, true)
+					end
+			end
+
+		// configure a raft peer routing
+		let egress: RaftEgress[CounterCommand,CounterTotal] =
+			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon where delegate = client_egress)
+		let peers: Array[RaftId] val = [as RaftId: 1;2;3;4;5]
+
+		let initial_delay: U64 = 400_000_000 // 0.4 seconds for raft servers other than raft-1
+		let rafts_build: Array[RaftServer[CounterCommand, CounterTotal]] trn =
+			recover trn Array[RaftServer[CounterCommand, CounterTotal]](5) end
+		for raftid in Range[RaftId](1,6) do
+			// allocate server monitors
+			let rmon: RaftServerMonitor[CounterCommand] iso^ = if raftid == 1 then
+				_CounterRaftMonitor(h where debug = _DebugOff, chain = (starter = NopRaftServerMonitor[CounterCommand]))
+			else
+				_CounterRaftMonitor(h where debug = _DebugOff)
+			end
+
+			// allocate state machines
+			let sm: CounterMachine iso^ = recover iso CounterMachine end
+
+			// allocate raft servers
+			let use_delay: U64 = if raftid == 1 then 0 else initial_delay end // we give raft1 a head start
+			let raft: RaftServer[CounterCommand,CounterTotal] =
+				RaftServer[CounterCommand,CounterTotal](raftid, _timers, egress, peers,
+						consume sm, CounterCommands.start()
+						where monitor = consume rmon, initial_processing = Paused, resume_delay = use_delay)
+
+			// register replicas in thier network
+			// (potential race as we register rafts asynchronously with starting them)
+			// (however, raft1 is given a head start and the test won't continue until a leader is elected)
+			// (and, leader can't be elected if the raft servers are unable to communicate)
+			egress.register_peer(raftid, raft)
+
+			rafts_build.push(raft)
+		end
+		let rafts: Array[RaftServer[CounterCommand, CounterTotal]] val = consume rafts_build
+
+		// -- link and start processing
+
+		// configure the client proxy
+		// (this must happen-before the client is starts;
+		//  and therefore before a leader is elected;
+		//  and therefore before the cluster starts)
+		try
+			let raft1 = rafts(0)?
+			raft_proxy.configure(raft1, {() =>
+				// rafts start paused (this alleviates races when configuring new intraprocess clusters)
+				// resume the rafts
+				for raft in rafts.values() do
+					raft.ctrl(Resumed)
+				end
+			})
+		else
+			h.fail("couldn't retrieve raft-1")
+		end
+
+		// dispose components when the test completes
+		// (otherwise the test might detect the failure, but pony won't stop)
+		for raft in rafts.values() do
+			h.dispose_when_done(raft)
+		end
+		h.dispose_when_done(source1)
+		h.dispose_when_done(source2)
+		h.dispose_when_done(source3)
 
 class iso _TestMajorityRaftPauseResume is UnitTest
 	"""
