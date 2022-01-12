@@ -688,9 +688,14 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 		h.expect_action("source-1:end:timeouts=false")
 		// ..
 		h.expect_action("source-2:start")
-		h.expect_action("source-2:end:sent=50")
-		h.expect_action("source-2:end:ack=50")
+		h.expect_action("source-2:end:sent=20")
+		h.expect_action("source-2:end:ack=20")
 		h.expect_action("source-2:end:timeouts=false")
+		// ..
+		h.expect_action("source-3:start")
+		h.expect_action("source-3:end:sent=30")
+		h.expect_action("source-3:end:ack=30")
+		h.expect_action("source-3:end:timeouts=false")
 
 		// commits
 		h.expect_action("raft-1:term=1:mode=leader:state-machine-update;last_applied_index=99;commit_index=100;last_log_index=100;update_log_index=100")
@@ -733,6 +738,7 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 		// allocate clients
 		let source1 = CounterClient(h, 1, raft_proxy where debug = _DebugOff)
 		let source2 = CounterClient(h, 2, raft_proxy where debug = _DebugOff)
+		let source3 = CounterClient(h, 3, raft_proxy where debug = _DebugOff)
 
 		// configure client command routing
 		let nopmon: EgressMonitor[RaftId] = NopEgressMonitor[RaftId]
@@ -746,6 +752,7 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 		// TODO REVIEW potential race since we configure the egress asynchronously
 		client_egress.register(1, source1)
 		client_egress.register(2, source2)
+		client_egress.register(3, source3)
 
 		// -- raft servers
 
@@ -761,9 +768,11 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 						h.complete_action("raft-*:term=" + term.string() + ";leader-detected")
 						// drive the client (start once we detect a leader)
 						source1.work(25)
-						source2.work(25)
+						source2.work(10)
+						source3.work(10)
 						source1.work(25, true)
-						source2.work(25, true)
+						source2.work(10, true)
+						source3.work(20, true)
 					end
 			end
 
@@ -844,6 +853,7 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 		h.dispose_when_done(raft5)
 		h.dispose_when_done(source1)
 		h.dispose_when_done(source2)
+		h.dispose_when_done(source3)
 
 
 class iso _TestOneRaftPauseResume is UnitTest
