@@ -137,11 +137,12 @@ actor CounterClient is Endpoint[CounterTotal val]
 		_last = last
 		_drain()
 
-	be stop() =>
+	be stop(ready: {():None}iso={()=>None} ) =>
 		if _stopped then return end
 		if _debug(_DebugKey) then _h.env.out.print("client forced stop.") end
 		// force a stop
 		_fin()
+		ready()
 
 	be dispose() =>
 		if _stopped then return end

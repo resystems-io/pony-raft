@@ -136,9 +136,8 @@ type RaftTimeout is (ElectionTimeout | HeartbeatTimeout | CanvasTimeout)
 
 type RaftEndpoint[T: Any val] is Endpoint[RaftSignal[T]]
 
-actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
+actor NopRaftEndpoint[T: Any val] is (RaftEndpoint[T] & Stoppable)
 	be apply(msg: RaftSignal[T]) => None
-	be stop() => None
 
 // -- tracing
 
@@ -514,12 +513,16 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 	// -- control
 
 	be dispose() => _stop() // an alias for DisposableActor
-	be stop() => _stop()
 
-	be ctrl(one_ctrl: RaftControl) =>
+	be stop(ready: {():None}iso={()=>None} ) =>
+		_stop() // note this really just calls _control()
+		ready()
+
+	be ctrl(one_ctrl: RaftControl, ready: {():None}iso={()=>None} ) =>
 		_control([as RaftControl: one_ctrl])
+		ready()
 
-	be control(ctls: Array[RaftControl] val) =>
+	be control(ctls: Array[RaftControl] val, ready: {():None}iso={()=>None} ) =>
 		"""
 		Perform any control operations listed.
 
@@ -527,6 +530,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		can be handled atomically.
 		"""
 		_control(ctls)
+		ready()
 
 	fun ref _control(ctls: Array[RaftControl] val) =>
 		for ctl in ctls.values() do
