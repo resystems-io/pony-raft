@@ -327,7 +327,7 @@ class iso _CounterRaftMonitor is RaftServerMonitor[CounterCommand]
 			_h.env.out.print("raft-" + id.string()
 				+ ":term=" + term.string()
 				+ ":mode=" + mode.string()
-				+ ":append-accepted"
+				+ ":append-processed"
 				+ ";last_applied_index=" + last_applied_index.string()
 				+ ";commit_index=" + commit_index.string()
 				+ ";last_log_index=" + last_log_index.string()
@@ -340,9 +340,9 @@ class iso _CounterRaftMonitor is RaftServerMonitor[CounterCommand]
 				+ ";appended=" + appended.string()
 			)
 		end
-		// e.g. "raft-5:term=1;mode=follower;append-accept=1;success=true"
+		// e.g. "raft-5:term=1;mode=follower;append-process=1;success=true"
 		let tb:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
-			+ ";append-accept=" + last_log_index.string()
+			+ ";append-process=" + last_log_index.string()
 			+ ";leader=" + leader_id.string()
 		let t1:String val = tb
 			+ ";success=" + appended.string()
@@ -537,36 +537,36 @@ class iso _TestSingleSourceNoFailures is UnitTest
 		// processing
 		h.expect_action("raft-1:control:resumed:1")
 		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
-		h.expect_action("raft-1:term=1;mode=leader;append-accept=1;leader=1;success=true")
-		h.expect_action("raft-1:term=1;mode=leader;append-accept=100;leader=1;success=true")
+		h.expect_action("raft-1:term=1;mode=leader;append-process=1;leader=1;success=true")
+		h.expect_action("raft-1:term=1;mode=leader;append-process=100;leader=1;success=true")
 		// ...
 		h.expect_action("raft-2:control:resumed:1")
 		h.expect_action("raft-2:resumed:1;append-messages-after-resume=true;heartbeat")
 		h.expect_action("raft-2:resumed:1;append-messages-after-resume=true;content")
-		h.expect_action("raft-2:term=1;mode=follower;append-accept=1;leader=1;success=true")
-		h.expect_action("raft-2:term=1;mode=follower;append-accept=100;leader=1;success=true")
-		h.expect_action("raft-2:term=1;mode=follower;append-accept=100;leader=1;count=0") // heatbeat after catchup
+		h.expect_action("raft-2:term=1;mode=follower;append-process=1;leader=1;success=true")
+		h.expect_action("raft-2:term=1;mode=follower;append-process=100;leader=1;success=true")
+		h.expect_action("raft-2:term=1;mode=follower;append-process=100;leader=1;count=0") // heatbeat after catchup
 		// ...
 		h.expect_action("raft-3:control:resumed:1")
 		h.expect_action("raft-3:resumed:1;append-messages-after-resume=true;heartbeat")
 		h.expect_action("raft-3:resumed:1;append-messages-after-resume=true;content")
-		h.expect_action("raft-3:term=1;mode=follower;append-accept=1;leader=1;success=true")
-		h.expect_action("raft-3:term=1;mode=follower;append-accept=100;leader=1;success=true")
-		h.expect_action("raft-3:term=1;mode=follower;append-accept=100;leader=1;count=0") // heatbeat after catchup
+		h.expect_action("raft-3:term=1;mode=follower;append-process=1;leader=1;success=true")
+		h.expect_action("raft-3:term=1;mode=follower;append-process=100;leader=1;success=true")
+		h.expect_action("raft-3:term=1;mode=follower;append-process=100;leader=1;count=0") // heatbeat after catchup
 		// ...
 		h.expect_action("raft-4:control:resumed:1")
 		h.expect_action("raft-4:resumed:1;append-messages-after-resume=true;heartbeat")
 		h.expect_action("raft-4:resumed:1;append-messages-after-resume=true;content")
-		h.expect_action("raft-4:term=1;mode=follower;append-accept=1;leader=1;success=true")
-		h.expect_action("raft-4:term=1;mode=follower;append-accept=100;leader=1;success=true")
-		h.expect_action("raft-4:term=1;mode=follower;append-accept=100;leader=1;count=0") // heatbeat after catchup
+		h.expect_action("raft-4:term=1;mode=follower;append-process=1;leader=1;success=true")
+		h.expect_action("raft-4:term=1;mode=follower;append-process=100;leader=1;success=true")
+		h.expect_action("raft-4:term=1;mode=follower;append-process=100;leader=1;count=0") // heatbeat after catchup
 		// ...
 		h.expect_action("raft-5:control:resumed:1")
 		h.expect_action("raft-5:resumed:1;append-messages-after-resume=true;heartbeat")
 		h.expect_action("raft-5:resumed:1;append-messages-after-resume=true;content")
-		h.expect_action("raft-5:term=1;mode=follower;append-accept=1;leader=1;success=true")
-		h.expect_action("raft-5:term=1;mode=follower;append-accept=100;leader=1;success=true")
-		h.expect_action("raft-5:term=1;mode=follower;append-accept=100;leader=1;count=0") // heatbeat after catchup
+		h.expect_action("raft-5:term=1;mode=follower;append-process=1;leader=1;success=true")
+		h.expect_action("raft-5:term=1;mode=follower;append-process=100;leader=1;success=true")
+		h.expect_action("raft-5:term=1;mode=follower;append-process=100;leader=1;count=0") // heatbeat after catchup
 
 		// create a local raft proxy
 		let raft_proxy = _RaftProxy
@@ -729,8 +729,8 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 
 		// processing
 		h.expect_action("raft-1:resumed:1;client-messages-after-resume=true")
-		h.expect_action("raft-1:term=1;mode=leader;append-accept=1;leader=1;success=true")
-		h.expect_action("raft-1:term=1;mode=leader;append-accept=100;leader=1;success=true")
+		h.expect_action("raft-1:term=1;mode=leader;append-process=1;leader=1;success=true")
+		h.expect_action("raft-1:term=1;mode=leader;append-process=100;leader=1;success=true")
 
 		// start processing
 		h.expect_action("raft-1:control:resumed:1")
@@ -741,10 +741,10 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 
 		// heatbeat after catchup
 		// NB leaders don't send themselves heartbeats
-		h.expect_action("raft-2:term=1;mode=follower;append-accept=100;leader=1;count=0")
-		h.expect_action("raft-3:term=1;mode=follower;append-accept=100;leader=1;count=0")
-		h.expect_action("raft-4:term=1;mode=follower;append-accept=100;leader=1;count=0")
-		h.expect_action("raft-5:term=1;mode=follower;append-accept=100;leader=1;count=0")
+		h.expect_action("raft-2:term=1;mode=follower;append-process=100;leader=1;count=0")
+		h.expect_action("raft-3:term=1;mode=follower;append-process=100;leader=1;count=0")
+		h.expect_action("raft-4:term=1;mode=follower;append-process=100;leader=1;count=0")
+		h.expect_action("raft-5:term=1;mode=follower;append-process=100;leader=1;count=0")
 
 		// create a local raft proxy
 		// (this appears as a "direct state-machine" but actually delegates to the raft)
