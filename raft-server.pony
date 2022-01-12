@@ -479,7 +479,11 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 	// -- processing
 
 	be raise(timeout: RaftTimeout) =>
-		if _processing is Paused then return end // simply ignore... we're paused
+		if _processing is Paused then
+			// simply ignore... we're paused
+			_monitor.warning(_id, _current_term(), _current_mode(), "timeout received while paused")
+			return
+		end
 		// TODO consider just ignoring timeout signals that don't match the current mode
 		_monitor.timeout_raised(_id, _current_term(), _current_mode(), timeout)
 		match timeout
@@ -490,7 +494,11 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		_sync() // drive our async updates
 
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
-		if _processing is Paused then return end // simply ignore... we're paused
+		if _processing is Paused then
+			_monitor.warning(_id, _current_term(), _current_mode(), "signal received while paused")
+			// simply ignore... we're paused
+			return
+		end
 		match signal
 		| (let s: RaftServerSignal[T]) => _absorb(s)
 		else
@@ -658,6 +666,9 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 		if not has_prev_term then
 			// here we are asking the leader to rewind and send us earlier entries
+			// note, we should also reset the the "election" timer because we are
+			// not trying to start a new term, we just want to get more logs.
+			_start_follower_timer() // TODO review timer reset here...
 			_emit_append_res(appendreq, false)
 			return
 		end
@@ -716,7 +727,8 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
 		if not convert_to_follower then
-			// no need to do this if we already converted to a follower (since that resets the timers)
+			// no need to do this if we already converted to a follower
+			// (since that resets the timers)
 			// but now we still want to reset the timers since we were already a follower
 			_start_follower_timer()
 		end
@@ -947,6 +959,10 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 					let tm: U64 = ls.last_millis(pi)?
 					// note - we stop the stampede using a timestamp per peer
 					if (lli >= ni) and ((now - tm) > _hearbeat_timeout) then
+						// keep track of when we tried to notify the peer
+						// (we bump this early so that persistence errors won't trigger a cascading failure)
+						ls.last_millis(pi)? = now
+
 						// send append entries to this peer (starting with entries at next-index)
 						// [ decide how many entries to send e.g. from ni with a max of 100, see: _max_append_batch ]
 						// i.e. we want [ ni, min(ni+max, lli+1) )
@@ -967,8 +983,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 							append.entries.push(le)
 						end
 
-						// keep track of when we tried to notify the peer
-						ls.last_millis(pi)? = now
+						// send an append to the peer
 						_egress.emit(consume append)
 					end
 				else
@@ -1042,6 +1057,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 	// -- mode processing initialisation
 
 	fun ref _set_mode(mode: RaftMode) =>
+		// (note, for a candidate we will bump the term after this is fired)
 		_mode = mode
 		_monitor.mode_changed(_id, persistent.current_term, _mode)
 

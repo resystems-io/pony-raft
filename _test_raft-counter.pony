@@ -870,6 +870,96 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 		h.dispose_when_done(source2)
 		h.dispose_when_done(source3)
 
+interface tag _CounterController
+	be pause() => None
+	be resume() => None
+
+class iso _CounterRaftPauseResumeMonitor is RaftServerMonitor[CounterCommand]
+	"""
+	Trigger pause and resume:
+	- wait for raft-3 to be a follower
+	- pause raft-3
+	- wait for 3 × paused signal warning
+	- resume raft-3
+	- wait for raft-3 to get all logs and apply them to the state machine
+	"""
+
+	let _h: TestHelper
+	let _debug: _Debug
+	let _chain: RaftServerMonitor[CounterCommand]
+	let _pauser: _CounterController
+
+	var _paused_signal_count: U32
+	var _resumed_fired: Bool // prevent double-resume (otherwise we resume after the test completes; and hang)
+
+	new iso create(h: TestHelper, pauser: _CounterController, chain: RaftServerMonitor[CounterCommand] iso = NopRaftServerMonitor[CounterCommand], debug: _Debug = _DebugOff) =>
+		_h = h
+		_pauser = pauser
+		_debug = debug
+		_chain = consume chain
+		_paused_signal_count = 0
+		_resumed_fired = false
+
+	fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
+		if id == 3 then
+			if _debug(_DebugNoisy) then _h.env.out.print("raft-3:check-if-follower") end
+			// wait for raft-3 to become a follower
+			if mode is Follower then
+				// pause raft-3
+				_pauser.pause()
+				if _debug(_DebugNoisy) then _h.env.out.print("raft-3:check-if-follower:found-and-paused") end
+			end
+		end
+		_chain.mode_changed(id, term, mode)
+
+	fun ref control_raised(id: RaftId, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
+		if id == 3 then
+			if _debug(_DebugNoisy) then
+				_h.env.out.print("raft-3:control-noted:" + control.string())
+			end
+		end
+
+	fun ref warning(id: RaftId
+		, term: RaftTerm
+		, mode: RaftMode
+		, msg: String val) =>
+		if id == 3 then
+			if _debug(_DebugNoisy) then _h.env.out.print("raft-3:count-signals-while-paused:" + msg) end
+			// wait for 3 paused signal warnings
+			if msg.contains("signal received while paused") then
+				_paused_signal_count = _paused_signal_count + 1
+				if _debug(_DebugNoisy) then
+					_h.env.out.print("raft-3:count-signals-while-paused:detected=" + _paused_signal_count.string())
+				end
+			end
+			// resume raft-3 after 3 paused signal warnings
+			if _paused_signal_count == 3 then
+				if not _resumed_fired then
+					_resumed_fired = true
+					if _debug(_DebugNoisy) then
+						_h.env.out.print("raft-3:count-signals-while-paused:resumed")
+					end
+					_pauser.resume()
+				end
+			end
+		end
+		_chain.warning(id, term, mode, msg)
+
+	fun ref state_change(id: RaftId
+		, term: RaftTerm
+		, mode: RaftMode
+		, last_applied_index: RaftIndex
+		, commit_index: RaftIndex
+		, last_log_index: RaftIndex
+		, update_log_index: RaftIndex
+		) =>
+		// wait for raft-3 to apply the last log
+		// (commit_index == 100, update_log_index=100)
+		if id == 3 then
+			if _debug(_DebugNoisy) then _h.env.out.print("raft-3:detect-last-update") end
+		end
+		_chain.state_change(id, term, mode, last_applied_index, commit_index, last_log_index, update_log_index)
+
 
 class iso _TestOneRaftPauseResume is UnitTest
 	"""
@@ -945,7 +1035,10 @@ class iso _TestOneRaftPauseResume is UnitTest
 		// we explicity monitor for the receipt of client state-machine commands
 		// after a resume cycle change.
 		h.expect_action("raft-3:resumed:2;append-messages-after-resume=true;content")
-		h.expect_action("raft-3:control:resumed:3") // finishing touch
+		// our paused raft must still see all log entries after it resumes
+		h.expect_action("raft-3:term=1:mode=follower:state-machine-update;last_applied_index=99;commit_index=100;last_log_index=100;update_log_index=100")
+		// also check for the final stop
+		h.expect_action("raft-3:control:paused:3")
 
 		// create a local raft proxy
 		// (this appears as a "direct state-machine" but actually delegates to the raft)
@@ -997,13 +1090,28 @@ class iso _TestOneRaftPauseResume is UnitTest
 			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon where delegate = client_egress)
 		let peers: Array[RaftId] val = [as RaftId: 1;2;3;4;5]
 
+		// a hook to pause our traget raft
+		let pauser = object tag
+			var _raft: (RaftServer[CounterCommand,CounterTotal] | None) = None
+			be pause() =>
+				match _raft | (let r: RaftServer[CounterCommand,CounterTotal]) => r.ctrl(Paused) end
+			be resume() =>
+				match _raft | (let r: RaftServer[CounterCommand,CounterTotal]) => r.ctrl(Resumed) end
+			be configure(raft: RaftServer[CounterCommand,CounterTotal]) => _raft = raft
+		end
+
+		// configure raft servers
 		let initial_delay: U64 = 400_000_000 // 0.4 seconds for raft servers other than raft-1
 		let rafts_build: Array[RaftServer[CounterCommand, CounterTotal]] trn =
 			recover trn Array[RaftServer[CounterCommand, CounterTotal]](5) end
 		for raftid in Range[RaftId](1,6) do
 			// allocate server monitors
 			let rmon: RaftServerMonitor[CounterCommand] iso^ = if raftid == 1 then
-				_CounterRaftMonitor(h where debug = _DebugOff, chain = (starter = NopRaftServerMonitor[CounterCommand]))
+				_CounterRaftMonitor(h where debug = _DebugOff
+					, chain = (starter = NopRaftServerMonitor[CounterCommand]))
+			elseif raftid == 3 then
+				_CounterRaftMonitor(h where debug = _DebugNoisy
+					, chain = _CounterRaftPauseResumeMonitor(h, pauser where debug = _DebugNoisy))
 			else
 				_CounterRaftMonitor(h where debug = _DebugOff)
 			end
@@ -1035,6 +1143,7 @@ class iso _TestOneRaftPauseResume is UnitTest
 		//  and therefore before a leader is elected;
 		//  and therefore before the cluster starts)
 		try
+			pauser.configure(rafts(2)?) // pick out raft-3
 			let raft1 = rafts(0)?
 			raft_proxy.configure(raft1, {() =>
 				// rafts start paused (this alleviates races when configuring new intraprocess clusters)
@@ -1046,6 +1155,13 @@ class iso _TestOneRaftPauseResume is UnitTest
 		else
 			h.fail("couldn't retrieve raft-1")
 		end
+
+		// TODO trigger pause and resume
+		// - wait for raft-3 to be a follower
+		// - pause raft-3
+		// - wait for 3 × paused signal warning
+		// - resume raft-3
+		// - wait for raft-3 to get all logs
 
 		// dispose components when the test completes
 		// (otherwise the test might detect the failure, but pony won't stop)
