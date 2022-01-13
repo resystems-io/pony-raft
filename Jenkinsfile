@@ -10,15 +10,26 @@ pipeline {
 				sh 'ponyc --version'
 			}
 		}
-		stage('Build') {
+		stage('Build Release') {
 			steps {
 				sh 'ponyc -b pony-raft'
 				archiveArtifacts artifacts: 'pony-raft', fingerprint: true
 			}
 		}
-		stage('Test') {
+		stage('Build Debug') {
+			steps {
+				sh 'ponyc -d -b pony-raft-debug'
+				archiveArtifacts artifacts: 'pony-raft-debug', fingerprint: true
+			}
+		}
+		stage('Test Release') {
 			steps {
 				sh './pony-raft'
+			}
+		}
+		stage('Test Debug') {
+			steps {
+				sh './pony-raft-debug'
 			}
 		}
 	}
