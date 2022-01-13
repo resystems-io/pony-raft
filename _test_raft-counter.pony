@@ -20,8 +20,8 @@ actor RaftCounterTests is TestList
 		test(_TestSingleSourceNoFailures)
 		test(_TestMultipleSourcesNoFailures)
 		test(_TestOneRaftPauseResume)
-		test(_TestRaftResetVolatile)
-		test(_TestRaftResetPersistent)
+//		test(_TestRaftResetVolatile)
+//		test(_TestRaftResetPersistent)
 
 // -- debugging levels
 
@@ -1009,6 +1009,9 @@ class iso _TestOneRaftPauseResume is UnitTest
 	fun ref tear_down(h: TestHelper) =>
 		None
 
+	fun ref _debug_level(): _Debug =>
+		_DebugOff
+
 	fun ref apply(h: TestHelper) =>
 		h.long_test(3_000_000_000)
 		// set expectations (halting-condition)
@@ -1070,9 +1073,9 @@ class iso _TestOneRaftPauseResume is UnitTest
 		let raft_proxy = _RaftProxy
 
 		// allocate clients
-		let source1 = CounterClient(h, 1, raft_proxy where debug = _DebugOff)
-		let source2 = CounterClient(h, 2, raft_proxy where debug = _DebugOff)
-		let source3 = CounterClient(h, 3, raft_proxy where debug = _DebugOff)
+		let source1 = CounterClient(h, 1, raft_proxy where debug = _debug_level())
+		let source2 = CounterClient(h, 2, raft_proxy where debug = _debug_level())
+		let source3 = CounterClient(h, 3, raft_proxy where debug = _debug_level())
 
 		// configure client command routing
 		let nopmon: EgressMonitor[RaftId] = NopEgressMonitor[RaftId]
@@ -1094,9 +1097,10 @@ class iso _TestOneRaftPauseResume is UnitTest
 		// (add this into the monitor chain)
 		// (note, because we contrive raft-1 to be the leader, we only chain the first monitor)
 		var starter: RaftServerMonitor[CounterCommand] iso = object iso is RaftServerMonitor[CounterCommand]
+				let _dl: _Debug = _debug_level()
 				fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) => None
 					if (id == 1) and (term == 1) and (mode is Leader) then
-						if _DebugOff(_DebugKey) then
+						if _dl(_DebugKey) then
 							h.env.out.print("leader detected, starting client")
 						end
 						h.complete_action("raft-*:term=" + term.string() + ";leader-detected")
@@ -1142,14 +1146,14 @@ class iso _TestOneRaftPauseResume is UnitTest
 		for raftid in Range[RaftId](1,6) do
 			// allocate server monitors
 			let rmon: RaftServerMonitor[CounterCommand] iso^ = if raftid == 1 then
-				_CounterRaftMonitor(h where debug = _DebugNoisy
+				_CounterRaftMonitor(h where debug = _debug_level()
 					, chain = (starter = NopRaftServerMonitor[CounterCommand]))
 			elseif raftid == 3 then
-				_CounterRaftMonitor(h where debug = _DebugNoisy
+				_CounterRaftMonitor(h where debug = _debug_level()
 					// we use the chained monitor to pause and resume the testing
-					, chain = _CounterRaftPauseResumeMonitor(h, pauser where debug = _DebugNoisy))
+					, chain = _CounterRaftPauseResumeMonitor(h, pauser where debug = _debug_level()))
 			else
-				_CounterRaftMonitor(h where debug = _DebugOff)
+				_CounterRaftMonitor(h where debug = _debug_level())
 			end
 
 			// allocate state machines
@@ -1202,8 +1206,9 @@ class iso _TestOneRaftPauseResume is UnitTest
 		h.dispose_when_done(source3)
 		h.dispose_when_done(object tag
 			let n: String = name()
+			let _dl: _Debug = _debug_level()
 			be dispose() =>
-				if _DebugNoisy(_DebugKey) then
+				if _dl(_DebugKey) then
 					h.env.out.print("====> test complete: " + n)
 				end
 		end)
