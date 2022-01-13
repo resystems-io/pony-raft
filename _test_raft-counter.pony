@@ -892,6 +892,7 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 interface tag _CounterController
 	be pause() => None
 	be resume() => None
+	be stopall() => None
 
 class iso _CounterRaftPauseResumeMonitor is RaftServerMonitor[CounterCommand]
 	"""
@@ -977,7 +978,10 @@ class iso _CounterRaftPauseResumeMonitor is RaftServerMonitor[CounterCommand]
 		// wait for raft-3 to apply the last log
 		// (commit_index == 100, update_log_index=100)
 		if id == 3 then
-			if _debug(_DebugNoisy) then _h.env.out.print("raft-3:detect-last-update") end
+			if (update_log_index == 100) and (commit_index == 100) then
+				if _debug(_DebugNoisy) then _h.env.out.print("raft-3:detect-last-update") end
+				_pauser.stopall()
+			end
 		end
 		_chain.state_change(id, term, mode, last_applied_index, commit_index, last_log_index, update_log_index)
 
@@ -1006,7 +1010,7 @@ class iso _TestOneRaftPauseResume is UnitTest
 		None
 
 	fun ref apply(h: TestHelper) =>
-		h.long_test(1_000_000_000)
+		h.long_test(3_000_000_000)
 		// set expectations (halting-condition)
 		// (all client should see all their messages being processed)
 		h.expect_action("source-1:start")
@@ -1058,7 +1062,7 @@ class iso _TestOneRaftPauseResume is UnitTest
 		h.expect_action("raft-3:resumed:2;append-messages-after-resume=true;content")
 		// our paused raft must still see all log entries after it resumes
 		h.expect_action("raft-3:term=1:mode=follower:state-machine-update;last_applied_index=99;commit_index=100;last_log_index=100;update_log_index=100")
-		// also check for the final stop
+		// also check for the final stop (this depends on stopall be called)
 		h.expect_action("raft-3:control:paused:3")
 
 		// create a local raft proxy
@@ -1111,14 +1115,24 @@ class iso _TestOneRaftPauseResume is UnitTest
 			IntraProcessRaftServerEgress[CounterCommand,CounterTotal](netmon where delegate = client_egress)
 		let peers: Array[RaftId] val = [as RaftId: 1;2;3;4;5]
 
-		// a hook to pause our traget raft
+		// a hook to pause our traget raft and cluster
 		let pauser = object tag
 			var _raft: (RaftServer[CounterCommand,CounterTotal] | None) = None
+			var _rafts: (Array[RaftServer[CounterCommand,CounterTotal]] val | None) = None
 			be pause() =>
 				match _raft | (let r: RaftServer[CounterCommand,CounterTotal]) => r.ctrl(Paused) end
 			be resume() =>
 				match _raft | (let r: RaftServer[CounterCommand,CounterTotal]) => r.ctrl(Resumed) end
-			be configure(raft: RaftServer[CounterCommand,CounterTotal]) => _raft = raft
+			be stopall() =>
+				match _rafts
+				| (let rc: Array[RaftServer[CounterCommand,CounterTotal]] val) =>
+					for r in rc.values() do
+						r.ctrl(Paused)
+					end
+				end
+			be configure(rafts: Array[RaftServer[CounterCommand, CounterTotal]] val) =>
+				_raft = try rafts(2)? else None end // pick out raft-3
+				_rafts = rafts
 		end
 
 		// configure raft servers
@@ -1132,6 +1146,7 @@ class iso _TestOneRaftPauseResume is UnitTest
 					, chain = (starter = NopRaftServerMonitor[CounterCommand]))
 			elseif raftid == 3 then
 				_CounterRaftMonitor(h where debug = _DebugNoisy
+					// we use the chained monitor to pause and resume the testing
 					, chain = _CounterRaftPauseResumeMonitor(h, pauser where debug = _DebugNoisy))
 			else
 				_CounterRaftMonitor(h where debug = _DebugOff)
@@ -1163,8 +1178,8 @@ class iso _TestOneRaftPauseResume is UnitTest
 		// (this must happen-before the client is starts;
 		//  and therefore before a leader is elected;
 		//  and therefore before the cluster starts)
+		pauser.configure(rafts)
 		try
-			pauser.configure(rafts(2)?) // pick out raft-3
 			let raft1 = rafts(0)?
 			raft_proxy.configure(raft1, {() =>
 				// rafts start paused (this alleviates races when configuring new intraprocess clusters)
@@ -1177,13 +1192,6 @@ class iso _TestOneRaftPauseResume is UnitTest
 			h.fail("couldn't retrieve raft-1")
 		end
 
-		// TODO trigger pause and resume
-		// - wait for raft-3 to be a follower
-		// - pause raft-3
-		// - wait for 3 × paused signal warning
-		// - resume raft-3
-		// - wait for raft-3 to get all logs
-
 		// dispose components when the test completes
 		// (otherwise the test might detect the failure, but pony won't stop)
 		for raft in rafts.values() do
@@ -1192,6 +1200,13 @@ class iso _TestOneRaftPauseResume is UnitTest
 		h.dispose_when_done(source1)
 		h.dispose_when_done(source2)
 		h.dispose_when_done(source3)
+		h.dispose_when_done(object tag
+			let n: String = name()
+			be dispose() =>
+				if _DebugNoisy(_DebugKey) then
+					h.env.out.print("====> test complete: " + n)
+				end
+		end)
 
 class iso _TestMajorityRaftPauseResume is UnitTest
 	"""
