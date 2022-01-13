@@ -149,17 +149,38 @@ interface iso RaftServerMonitor[T: Any val]
 	"""
 
 	// -- a general warning from a server... (shouldn't happen)
+
+	fun ref failure(id: RaftId
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+		, msg: String val
+		) =>
+		"""
+		Raised when a critical failure state is detected in the raft.
+		"""
+			None
+
 	fun ref warning(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 		, msg: String val
-		) => None
+		) =>
+		"""
+		Raised when a non-critical anomaly is detected in the raft.
+		"""
+			None
 
 	fun ref debugging(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 		, msg: String val
-		) => None
+		) =>
+		"""
+		Raised to provide debugging details about the raft.
+
+		Only available when compiled with `ponyc -d`
+		"""
+			None
 
 	// -- follow incoming chatter that is recevied by a server
 	fun ref vote_req(id: RaftId, signal: VoteRequest val) => None
@@ -846,8 +867,8 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 					// TODO REVIEW should we trigger a rewind for a standard hearbeat? i.e. entries_count == 0
 				end
 			else
-				// FIXME we should fail if we get an unknown response
-				_monitor.warning(_id, _current_term(), _current_mode(), "failed to handle append-entries-result")
+				// we should fail if we get an unknown response
+				_monitor.failure(_id, _current_term(), _current_mode(), "failed to handle append-entries-result")
 			end
 		end
 
@@ -1066,8 +1087,8 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 						_egress.emit(consume append)
 					end
 				else
-					// FIXME fail hard on an error...
-					_monitor.warning(_id, _current_term(), _current_mode(), "failure preparing append-entries-requests")
+					// fail hard on an error...
+					_monitor.failure(_id, _current_term(), _current_mode(), "failure preparing append-entries-requests")
 				end
 			end
 		end
@@ -1111,7 +1132,8 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 				// (if calls are asynchronous, then we should perform more work once we get a reply.)
 				_bottom_half_sync()
 			else
-				_monitor.warning(_id, _current_term(), _current_mode(), "failure applying log to state-machine: " + index_to_apply.string())
+				// TODO REVIEW we might want downgrade this from a failure to a warning depending on state-machines
+				_monitor.failure(_id, _current_term(), _current_mode(), "failure applying log to state-machine: " + index_to_apply.string())
 			end
 		end
 

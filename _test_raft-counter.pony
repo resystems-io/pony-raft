@@ -387,6 +387,16 @@ class iso _CounterRaftMonitor is RaftServerMonitor[CounterCommand]
 		_h.complete_action(tf)
 		_chain.state_change(id, term, mode, last_applied_index, commit_index, last_log_index, update_log_index)
 
+	fun ref failure(id: RaftId
+		, term: RaftTerm
+		, mode: RaftMode
+		, msg: String val) =>
+		let t:String val = "raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string()
+				+ ";failure" + ";msg=" + msg
+		if _debug(_DebugKey) then _h.env.out.print(t) end
+		_h.fail(t)
+		_chain.failure(id, term, mode, msg)
+
 	fun ref warning(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
@@ -914,9 +924,11 @@ class iso _CounterRaftPauseResumeMonitor is RaftServerMonitor[CounterCommand]
 			if _debug(_DebugNoisy) then _h.env.out.print("raft-3:check-if-follower") end
 			// wait for raft-3 to become a follower
 			if mode is Follower then
-				// pause raft-3
-				_pauser.pause()
-				if _debug(_DebugNoisy) then _h.env.out.print("raft-3:check-if-follower:found-and-paused") end
+				if not _resumed_fired then
+					// pause raft-3 (but for the test, don't pause again if we have passed the resume cycle)
+					_pauser.pause()
+					if _debug(_DebugNoisy) then _h.env.out.print("raft-3:check-if-follower:found-and-paused") end
+				end
 			end
 		end
 		_chain.mode_changed(id, term, mode)
