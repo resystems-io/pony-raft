@@ -340,6 +340,9 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 		_seen_follower = false
 		_count_append = 0
 
+	fun ref failure(id: RaftId, term: RaftTerm, mode: RaftMode, msg: String) =>
+		_h.fail("raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string() + ";failure" + ";msg=" + msg)
+
 	fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		match mode
 		| Follower =>
@@ -358,7 +361,7 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 			_h.fail("follower should not become a leader")
 		end
 
-	fun ref append_accepted(id: RaftId
+	fun ref append_processed(id: RaftId
 		, term: RaftTerm
 		, mode: RaftMode
 
@@ -523,6 +526,9 @@ class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 		_h = h
 		_seen_follower = false
 		_is_candidate = false
+
+	fun ref failure(id: RaftId, term: RaftTerm, mode: RaftMode, msg: String) =>
+		_h.fail("raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string() + ";failure" + ";msg=" + msg)
 
 	fun ref timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) => None
 
@@ -948,6 +954,8 @@ class iso _TestRequestVote is UnitTest
 
 				fun box timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) => _env.out.print("timeout raised")
 				fun box mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) => _env.out.print("mode changed: " + mode.text() + " term:" + term.string())
+				fun ref failure(id: RaftId, term: RaftTerm, mode: RaftMode, msg: String) => _env.out.print("failure: raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string() + ";failure" + ";msg=" + msg)
+				fun ref warning(id: RaftId, term: RaftTerm, mode: RaftMode, msg: String) => _env.out.print("warning: raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string() + ";warning" + ";msg=" + msg)
 			end
 
 		// register components that need to be shut down
@@ -983,7 +991,7 @@ primitive DummyResponse
 class iso DummyMachine is StateMachine[DummyCommand, DummyResponse]
 	fun ref accept(command: DummyCommand): DummyResponse => DummyResponse
 
-class val EnvEgressMonitor is EgressMonitor
+class val EnvEgressMonitor is EgressMonitor[RaftId]
 
 	let _env: Env
 

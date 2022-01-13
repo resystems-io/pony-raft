@@ -18,7 +18,6 @@ actor NopEndpoint[T: Any #send] is Endpoint[T]
 	A dead-end endpoint that doesn't send a message.
 	"""
 	be apply(msg: T) => None
-	be stop() => None
 
 actor SpanningEndpoint[A: Any val, B: Any val] is Endpoint[(A|B)]
 	"""

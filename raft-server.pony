@@ -136,9 +136,8 @@ type RaftTimeout is (ElectionTimeout | HeartbeatTimeout | CanvasTimeout)
 
 type RaftEndpoint[T: Any val] is Endpoint[RaftSignal[T]]
 
-actor NopRaftEndpoint[T: Any val] is RaftEndpoint[T]
+actor NopRaftEndpoint[T: Any val] is (RaftEndpoint[T] & Stoppable)
 	be apply(msg: RaftSignal[T]) => None
-	be stop() => None
 
 // -- tracing
 
@@ -150,11 +149,38 @@ interface iso RaftServerMonitor[T: Any val]
 	"""
 
 	// -- a general warning from a server... (shouldn't happen)
+
+	fun ref failure(id: RaftId
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+		, msg: String val
+		) =>
+		"""
+		Raised when a critical failure state is detected in the raft.
+		"""
+			None
+
 	fun ref warning(id: RaftId
 		, term: RaftTerm			// the current term
 		, mode: RaftMode			// the current mode
 		, msg: String val
-		) => None
+		) =>
+		"""
+		Raised when a non-critical anomaly is detected in the raft.
+		"""
+			None
+
+	fun ref debugging(id: RaftId
+		, term: RaftTerm			// the current term
+		, mode: RaftMode			// the current mode
+		, msg: String val
+		) =>
+		"""
+		Raised to provide debugging details about the raft.
+
+		Only available when compiled with `ponyc -d`
+		"""
+			None
 
 	// -- follow incoming chatter that is recevied by a server
 	fun ref vote_req(id: RaftId, signal: VoteRequest val) => None
@@ -197,7 +223,7 @@ interface iso RaftServerMonitor[T: Any val]
 		i.e. to change from follower to candidate, to re-run an election or to send a heartbeat.
 		"""
 		None
-	fun ref append_accepted(id: RaftId
+	fun ref append_processed(id: RaftId
 		, term: RaftTerm		// the current term
 		, mode: RaftMode		// the current mode
 
@@ -254,113 +280,14 @@ interface iso RaftServerMonitor[T: Any val]
 		"""
 		None
 
-trait iso RaftServerMonitorChain[T: Any val]
-	"""
-	The monitor chain trait can be added in order to chain monitors together.
-
-	This does not provide automatic chaining, but it simplifies the process
-	by delegating calls if a chain link exists (i.e. is non-None)
-	"""
-
-	fun ref _chain() : (RaftServerMonitor[T] | None)
-
-	fun ref _chain_warning(id: RaftId
-		, term: RaftTerm			// the current term
-		, mode: RaftMode			// the current mode
-		, msg: String val
-		) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.warning(id, term, mode, msg)
-		end
-
-	fun ref _chain_vote_req(id: RaftId, signal: VoteRequest val) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.vote_req(id, signal)
-		end
-	fun ref _chain_vote_res(id: RaftId, signal: VoteResponse) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.vote_res(id, signal)
-		end
-	fun ref _chain_append_req(id: RaftId, signal: AppendEntriesRequest[T] val) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.append_req(id, consume signal)
-		end
-	fun ref _chain_append_res(id: RaftId, signal: AppendEntriesResult) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.append_res(id, signal)
-		end
-	fun ref _chain_install_req(id: RaftId, signal: InstallSnapshotRequest val) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.install_req(id, signal)
-		end
-	fun ref _chain_install_res(id: RaftId, signal: InstallSnapshotResponse) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.install_res(id, signal)
-		end
-
-	fun ref _chain_command_req(id: RaftId, term: RaftTerm, mode: RaftMode) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.command_req(id, term, mode)
-		end
-	fun ref _chain_command_res(id: RaftId, term: RaftTerm, mode: RaftMode) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.command_res(id, term, mode)
-		end
-
-	fun ref _chain_mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.mode_changed(id, term, mode)
-		end
-	fun ref _chain_timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.timeout_raised(id, term, mode, timeout)
-		end
-	fun ref _chain_append_accepted(id: RaftId
-		, term: RaftTerm
-		, mode: RaftMode
-
-		, last_applied_index: RaftIndex
-		, commit_index: RaftIndex
-		, last_log_index: RaftIndex
-
-		, leader_term: RaftTerm
-		, leader_id: RaftId
-		, leader_commit_index: RaftIndex
-		, leader_prev_log_index: RaftIndex
-		, leader_prev_log_term: RaftTerm
-		, leader_entry_count: USize
-
-		, appended: Bool
-		) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.append_accepted(id
-				, term, mode, last_applied_index, commit_index, last_log_index
-				, leader_term, leader_id, leader_commit_index, leader_prev_log_index, leader_prev_log_term, leader_entry_count
-				, appended
-			)
-		end
-	fun ref _chain_state_change(id: RaftId
-		, term: RaftTerm
-		, mode: RaftMode
-
-		, last_applied_index: RaftIndex
-		, commit_index: RaftIndex
-		, last_log_index: RaftIndex
-
-		, update_log_index: RaftIndex
-		) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.state_change(id
-				, term, mode, last_applied_index, commit_index, last_log_index, update_log_index
-			)
-		end
-
-	fun ref _chain_control_raised(id: RaftId, term: RaftTerm, mode: RaftMode, control: RaftControl) =>
-		match _chain() | (let ch: RaftServerMonitor[T]) =>
-			ch.control_raised(id, term, mode, control)
-		end
-
 class iso NopRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
+	"""
+	NopRaftServerMonitor can be used to support chaining.
+
+	```
+	new create(_chain: RaftServerMonitorChain[T] iso = NopRaftServerMonitor[T]) => ...
+	```
+	"""
 
 interface tag RaftRaisable
 	"""
@@ -514,12 +441,16 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 	// -- control
 
 	be dispose() => _stop() // an alias for DisposableActor
-	be stop() => _stop()
 
-	be ctrl(one_ctrl: RaftControl) =>
+	be stop(ready: {():None}iso={()=>None} ) =>
+		_stop() // note this really just calls _control()
+		ready()
+
+	be ctrl(one_ctrl: RaftControl, ready: {():None}iso={()=>None} ) =>
 		_control([as RaftControl: one_ctrl])
+		ready()
 
-	be control(ctls: Array[RaftControl] val) =>
+	be control(ctls: Array[RaftControl] val, ready: {():None}iso={()=>None} ) =>
 		"""
 		Perform any control operations listed.
 
@@ -527,6 +458,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		can be handled atomically.
 		"""
 		_control(ctls)
+		ready()
 
 	fun ref _control(ctls: Array[RaftControl] val) =>
 		for ctl in ctls.values() do
@@ -574,7 +506,11 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 	// -- processing
 
 	be raise(timeout: RaftTimeout) =>
-		if _processing is Paused then return end // simply ignore... we're paused
+		if _processing is Paused then
+			// simply ignore... we're paused
+			_monitor.warning(_id, _current_term(), _current_mode(), "timeout received while paused")
+			return
+		end
 		// TODO consider just ignoring timeout signals that don't match the current mode
 		_monitor.timeout_raised(_id, _current_term(), _current_mode(), timeout)
 		match timeout
@@ -585,7 +521,11 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		_sync() // drive our async updates
 
 	be apply(signal: RaftSignal[T]) => // FIXME this should be limited to RaftServerSignal[T]
-		if _processing is Paused then return end // simply ignore... we're paused
+		if _processing is Paused then
+			_monitor.warning(_id, _current_term(), _current_mode(), "signal received while paused")
+			// simply ignore... we're paused
+			return
+		end
 		match signal
 		| (let s: RaftServerSignal[T]) => _absorb(s)
 		else
@@ -738,6 +678,13 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		// decide if this request should be honoured
 		// (we might be ahead of the leader and in a new term)
 		if (appendreq.term < persistent.current_term) then
+			_monitor.debugging(_id, _current_term(), _current_mode(), "append (reject) leader behind term;"
+				+ " appendreq.term=" + appendreq.term.string()
+				+ " appendreq.prev_log_index=" + appendreq.prev_log_index.string()
+				+ " appendreq.prev_log_term=" + appendreq.prev_log_term.string()
+				+ " appendreq.entries.size=" + appendreq.entries.size().string()
+				+ " persistent.current_term=" + persistent.current_term.string()
+				)
 			_emit_append_res(appendreq, false)
 			return
 		end
@@ -753,7 +700,19 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 		if not has_prev_term then
 			// here we are asking the leader to rewind and send us earlier entries
+			// note, we should also reset the the "election" timer because we are
+			// not trying to start a new term, we just want to get more logs.
+			_start_follower_timer() // TODO review timer reset here...
 			_emit_append_res(appendreq, false)
+			_monitor.debugging(_id, _current_term(), _current_mode(), "append (reject) missing prev_term;"
+				+ " has_prev_term=" + has_prev_term.string()
+				+ " has_prev_index=" + has_prev_index.string()
+				+ " appendreq.term=" + appendreq.term.string()
+				+ " appendreq.prev_log_index=" + appendreq.prev_log_index.string()
+				+ " appendreq.prev_log_term=" + appendreq.prev_log_term.string()
+				+ " appendreq.entries.size=" + appendreq.entries.size().string()
+				+ " persistent.current_term=" + persistent.current_term.string()
+			  )
 			return
 		end
 
@@ -811,7 +770,8 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 		// if accepted, reset timers (we might have received a heartbeat so we can chill out for now)
 		if not convert_to_follower then
-			// no need to do this if we already converted to a follower (since that resets the timers)
+			// no need to do this if we already converted to a follower
+			// (since that resets the timers)
 			// but now we still want to reset the timers since we were already a follower
 			_start_follower_timer()
 		end
@@ -843,7 +803,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		let commit_index = _commit_index()
 		let last_applied_index = _last_applied_index()
 
-		_monitor.append_accepted(_id
+		_monitor.append_processed(_id
 			where
 				term = _current_term()
 			, mode = _current_mode()
@@ -884,13 +844,31 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 					let new_next: RaftIndex = appendres.prev_log_index + appendres.entries_count + 1
 					ls.next_index(p)? = new_next
 					ls.match_index(p)? = new_next
+					_monitor.debugging(_id, _current_term(), _current_mode(),
+						"stepping (success)"
+							+ " appendres.peer_id=" + appendres.peer_id.string()
+							+ " appendres.prev_log_index=" + appendres.prev_log_index.string()
+							+ " appendres.entries_count=" + appendres.entries_count.string()
+							+ " new_next_index=" + new_next.string()
+						)
 				else
 					// if AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)
-					ls.next_index(p)? = ls.next_index(p)? - 1
+					var ni: RaftIndex = ls.next_index(p)?
+					if ni > 1 then ni = ni - 1 end // note, the next index must not go below 1 (raft starts at 1)
+					ls.next_index(p)? = ni
+					// TODO add compile override to remove the following debugging
+					_monitor.debugging(_id, _current_term(), _current_mode(),
+						"rewinding (reject)"
+							+ " appendres.peer_id=" + appendres.peer_id.string()
+							+ " appendres.prev_log_index=" + appendres.prev_log_index.string()
+							+ " appendres.entries_count=" + appendres.entries_count.string()
+							+ " new_next_index=" + ni.string()
+						)
+					// TODO REVIEW should we trigger a rewind for a standard hearbeat? i.e. entries_count == 0
 				end
 			else
-				// FIXME we should fail if we get an unknown response
-				_monitor.warning(_id, _current_term(), _current_mode(), "failed to handle append-entries-result")
+				// we should fail if we get an unknown response
+				_monitor.failure(_id, _current_term(), _current_mode(), "failed to handle append-entries-result")
 			end
 		end
 
@@ -942,11 +920,16 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 			append.trace_seq = (_trace_seq = _trace_seq + 1)
 			append.term = persistent.current_term
 			append.prev_log_index = lli // based on the fact that next-index is set to lli + 1
-			append.prev_log_term = try persistent.log(append.prev_log_index)?.term else 0 end
+			append.prev_log_term = try persistent.log(append.prev_log_index)?.term else 0 end // TODO review, should we rather send from next_index ?
 			append.leader_commit = volatile.commit_index
 			append.leader_id = _id
 			append.entries.clear() // Note, entries is `iso`
 
+			_monitor.debugging(_id, _current_term(), _current_mode(), "heartbeat"
+				+ " trace_seq=" + append.trace_seq.string()
+				+ " peer_id=" + append.target_follower_id.string()
+				+ " prev_log_index=" + append.prev_log_index.string()
+				)
 			_egress.emit(consume append)
 		end
 		// note - we process the results asynchronously
@@ -1036,39 +1019,76 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		match leader
 		| (let ls: VolatileLeaderState) =>
 			for pi in Range(0, _peers.size()) do
+				_monitor.debugging(_id, _current_term(), _current_mode(), "wtf 0" + " pi=" + pi.string())
 				try
 					let p: RaftId = _peers(pi)?
 					let ni: RaftIndex = ls.next_index(pi)?
 					let tm: U64 = ls.last_millis(pi)?
+					_monitor.debugging(_id, _current_term(), _current_mode(), "wtf 1"
+						+ " pi=" + pi.string()
+						+ " peer_id=" + p.string()
+						+ " now=" + now.string()
+						+ " tm=" + tm.string()
+						+ " lli=" + lli.string()
+					)
+					// check our sync trigger
+					_monitor.debugging(_id, _current_term(), _current_mode(), "lag-check"
+						+ " pred(trace_seq)=" + _trace_seq.string()
+						+ " lli=" + lli.string()
+						+ " now=" + now.string()
+						+ " peer.tm=" + tm.string()
+						+ " peer_id=" + p.string()
+						+ " peer.next_index=" + ni.string()
+						+ " (now - tm)=" + (now - tm).string()
+						)
 					// note - we stop the stampede using a timestamp per peer
 					if (lli >= ni) and ((now - tm) > _hearbeat_timeout) then
+						_monitor.debugging(_id, _current_term(), _current_mode(), "wtf A" + " peer_id=" + p.string())
+						// keep track of when we tried to notify the peer
+						// (we bump this early so that persistence errors won't trigger a cascading failure)
+						ls.last_millis(pi)? = now
+						_monitor.debugging(_id, _current_term(), _current_mode(), "wtf B" + " peer_id=" + p.string())
+
 						// send append entries to this peer (starting with entries at next-index)
 						// [ decide how many entries to send e.g. from ni with a max of 100, see: _max_append_batch ]
 						// i.e. we want [ ni, min(ni+max, lli+1) )
 						let send_count = _max_append_batch.min((lli + 1) - ni)
+						// FIXME remove the following debugging
 						let append: AppendEntriesRequest[T] iso = recover iso AppendEntriesRequest[T](send_count) end
+						_monitor.debugging(_id, _current_term(), _current_mode(), "wtf C" + " peer_id=" + p.string())
 						append.target_follower_id = p
 						append.trace_seq = (_trace_seq = _trace_seq + 1)
 						append.term = persistent.current_term
 						append.leader_commit = volatile.commit_index
 						append.leader_id = _id
+						_monitor.debugging(_id, _current_term(), _current_mode(), "wtf D" + " peer_id=" + p.string())
 
 						append.prev_log_index = ni - 1
 						append.prev_log_term = persistent.log(append.prev_log_index)?.term
+						_monitor.debugging(_id, _current_term(), _current_mode(), "wtf E" + " peer_id=" + p.string())
+
+						// debug tracing
+						_monitor.debugging(_id, _current_term(), _current_mode(), "calc"
+							+ " trace_seq=" + append.trace_seq.string()
+							+ " peer_id=" + p.string()
+							+ " send_count=" + send_count.string()
+							+ " next_index=" + ni.string()
+							+ " lli=" + lli.string()
+							)
 
 						// copy/link entries to send
 						for idx in Range(ni, ni + send_count) do
 							let le = persistent.log(idx)?
 							append.entries.push(le)
 						end
+						_monitor.debugging(_id, _current_term(), _current_mode(), "wtf F" + " peer_id=" + p.string())
 
-						// keep track of when we tried to notify the peer
-						ls.last_millis(pi)? = now
+						// send an append to the peer
 						_egress.emit(consume append)
 					end
 				else
-					// FIXME fail hard on an error...
-					_monitor.warning(_id, _current_term(), _current_mode(), "failure preparing append-entries-requests")
+					// fail hard on an error...
+					_monitor.failure(_id, _current_term(), _current_mode(), "failure preparing append-entries-requests")
 				end
 			end
 		end
@@ -1112,7 +1132,8 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 				// (if calls are asynchronous, then we should perform more work once we get a reply.)
 				_bottom_half_sync()
 			else
-				_monitor.warning(_id, _current_term(), _current_mode(), "failure applying log to state-machine: " + index_to_apply.string())
+				// TODO REVIEW we might want downgrade this from a failure to a warning depending on state-machines
+				_monitor.failure(_id, _current_term(), _current_mode(), "failure applying log to state-machine: " + index_to_apply.string())
 			end
 		end
 
@@ -1137,6 +1158,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 	// -- mode processing initialisation
 
 	fun ref _set_mode(mode: RaftMode) =>
+		// (note, for a candidate we will bump the term after this is fired)
 		_mode = mode
 		_monitor.mode_changed(_id, persistent.current_term, _mode)
 
@@ -1309,7 +1331,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		persistent.log.push(le)
 		let ll: RaftIndex = _last_log_index()
 		// notify monitor that we accepted a command into the log (as a leader)
-		_monitor.append_accepted(_id
+		_monitor.append_processed(_id
 			where
 				term = _current_term()
 			, mode = _current_mode()

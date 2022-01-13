@@ -1,3 +1,3 @@
 interface tag Stoppable is DisposableActor
-	be stop() => None
+	be stop(ready: {():None}iso={()=>None} ) => ready()
 	be dispose() => stop()
