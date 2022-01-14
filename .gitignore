@@ -1,2 +1,5 @@
 pony-raft
 **/.*.swp
+
+# temporary compiler files
+pony-raft.o

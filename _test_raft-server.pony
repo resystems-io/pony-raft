@@ -26,6 +26,9 @@ actor RaftServerTests is TestList
 		test(_TestAppendRejectNoPrev)
 		test(_TestAppendDropConflictingLogEntries)
 
+primitive _RaftServerTests
+	fun tag debugging(): Bool => false
+
 primitive Digits
 	fun val number(n: U16): String =>
 		match n
@@ -116,7 +119,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 	let _egress: RaftEgress[DummyCommand,DummyResponse]
 	let _leader_id: RaftId
 	let _follower_id: RaftId
-	let _debug: Bool = false
+	let _debug: Bool = _RaftServerTests.debugging()
 
 	new create(h: TestHelper
 		, egress: RaftEgress[DummyCommand,DummyResponse]
@@ -203,7 +206,7 @@ class iso _TestAppendRejectNoPrev is UnitTest
 
 	fun name(): String => "raft:server:append-no-prev"
 
-	fun box _debug(): Bool => false
+	fun box _debug(): Bool => _RaftServerTests.debugging()
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -246,7 +249,7 @@ class iso _TestAppendRejectNoPrev is UnitTest
 actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 
 	let _h: TestHelper
-	let _debug: Bool = false
+	let _debug: Bool = _RaftServerTests.debugging()
 	let _egress: RaftEgress[DummyCommand,DummyResponse]
 	let _leader_id: RaftId
 	let _follower_id: RaftId
@@ -344,7 +347,7 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 	"""
 
 	let _h: TestHelper
-	let _debug: Bool = false
+	let _debug: Bool = _RaftServerTests.debugging()
 	let _mock_leader: _AppendMockLeader
 	var _seen_follower: Bool
 	var _count_append: U16
@@ -535,7 +538,7 @@ class iso _TestConvertToLeader is UnitTest
 
 class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 
-	let _debug: Bool = false
+	let _debug: Bool = _RaftServerTests.debugging()
 	let _h: TestHelper
 	var _seen_follower: Bool
 	var _is_candidate: Bool
@@ -572,7 +575,7 @@ class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
-	let _debug: Bool = false
+	let _debug: Bool = _RaftServerTests.debugging()
 	let _egress: RaftEgress[DummyCommand,DummyResponse]
 	let _id: RaftId
 	var _seen_append: U16
@@ -634,7 +637,7 @@ class iso _TestConvertToFollower is UnitTest
 
 	fun name(): String => "raft:server:convert-to-follower"
 
-	fun box _debug(): Bool => false
+	fun box _debug(): Bool => _RaftServerTests.debugging()
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -729,7 +732,7 @@ class iso _TestFailLowerTermAppend is UnitTest
 
 	fun name(): String => "raft:server:fail-lower-term-append"
 
-	fun box _debug():Bool => false
+	fun box _debug():Bool => _RaftServerTests.debugging()
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -804,7 +807,7 @@ class iso _TestWaitForCanvas is UnitTest
 
 	fun name(): String => "raft:server:canvas"
 
-	fun box _debug(): Bool => false
+	fun box _debug(): Bool => _RaftServerTests.debugging()
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -869,7 +872,7 @@ class iso _TestConvertToCandidate is UnitTest
 
 	fun name(): String => "raft:server:convert-to-candidate"
 
-	fun box _debug(): Bool => false
+	fun box _debug(): Bool => _RaftServerTests.debugging()
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -958,7 +961,7 @@ class iso _TestRequestVote is UnitTest
 
 	fun ref tear_down(h: TestHelper) => None
 
-	fun ref _debug(): Bool => false
+	fun ref _debug(): Bool => _RaftServerTests.debugging()
 
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
@@ -1039,7 +1042,7 @@ class val EnvEgressMonitor is EgressMonitor[RaftId]
 actor ExpectVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
-	let _debug: Bool = false
+	let _debug: Bool = _RaftServerTests.debugging()
 
 	new create(h: TestHelper) =>
 		_h = h
