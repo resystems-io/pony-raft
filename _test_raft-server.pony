@@ -82,8 +82,8 @@ class iso _TestAppendDropConflictingLogEntries is UnitTest
 		let peer_one_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
-		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
+		let netmon = NopEgressMonitor[RaftId] // EnvEgressMonitor(h.env)
+		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](consume netmon)
 
 		// set up a monitor to wait for state changes and to trigger the mock leader
 		let mock_leader: _AppendAndOverwriteMockLeader = _AppendAndOverwriteMockLeader(h
@@ -116,6 +116,7 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 	let _egress: RaftEgress[DummyCommand,DummyResponse]
 	let _leader_id: RaftId
 	let _follower_id: RaftId
+	let _debug: Bool = false
 
 	new create(h: TestHelper
 		, egress: RaftEgress[DummyCommand,DummyResponse]
@@ -128,15 +129,19 @@ actor _AppendAndOverwriteMockLeader is _AppendMockLeader
 	be apply(signal: RaftSignal[DummyCommand]) => None
 		match consume signal
 		| let s: VoteRequest =>
-			_h.env.out.print("got vote request in mock leader: " + _leader_id.string()
-					+ " for term: " + s.term.string()
-					+ " from candidate: " + s.candidate_id.string()
-				)
+			if _debug then
+				_h.env.out.print("got vote request in mock leader: " + _leader_id.string()
+						+ " for term: " + s.term.string()
+						+ " from candidate: " + s.candidate_id.string()
+					)
+			end
 			_h.fail("mock leader should not get a vote request")
 		| let s: AppendEntriesRequest[DummyCommand] =>
 			_h.fail("mock leader should not get a vote append requests")
 		| let s: AppendEntriesResult =>
-			_h.env.out.print("got append result in mock leader: " + _leader_id.string())
+			if _debug then
+				_h.env.out.print("got append result in mock leader: " + _leader_id.string())
+			end
 		end
 
 	be lead_one() =>
@@ -198,6 +203,8 @@ class iso _TestAppendRejectNoPrev is UnitTest
 
 	fun name(): String => "raft:server:append-no-prev"
 
+	fun box _debug(): Bool => false
+
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 		h.expect_action("got-follower-start")
@@ -208,12 +215,14 @@ class iso _TestAppendRejectNoPrev is UnitTest
 		let follower_id: RaftId = 1 // actual replica server being tested
 		let mock_leader_id: RaftId = 2 // observer validating the replies
 
-		h.env.out.print("net address - follower: " + follower_id.string())
-		h.env.out.print("net address - mock leader: " + mock_leader_id.string())
+		if _debug() then
+			h.env.out.print("net address - follower: " + follower_id.string())
+			h.env.out.print("net address - mock leader: " + mock_leader_id.string())
+		end
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
-		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
+		let netmon = NopEgressMonitor[RaftId] // EnvEgressMonitor(h.env)
+		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](consume netmon)
 
 		// set up a monitor to wait for state changes and to trigger the mock leader
 		let mock_leader: _AppendRejectNoPrevMockLeader = _AppendRejectNoPrevMockLeader(h
@@ -237,6 +246,7 @@ class iso _TestAppendRejectNoPrev is UnitTest
 actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 
 	let _h: TestHelper
+	let _debug: Bool = false
 	let _egress: RaftEgress[DummyCommand,DummyResponse]
 	let _leader_id: RaftId
 	let _follower_id: RaftId
@@ -252,15 +262,19 @@ actor _AppendRejectNoPrevMockLeader is _AppendMockLeader
 	be apply(signal: RaftSignal[DummyCommand]) => None
 		match consume signal
 		| let s: VoteRequest =>
-			_h.env.out.print("got vote request in mock leader: " + _leader_id.string()
-					+ " for term: " + s.term.string()
-					+ " from candidate: " + s.candidate_id.string()
-				)
+			if _debug then
+				_h.env.out.print("got vote request in mock leader: " + _leader_id.string()
+						+ " for term: " + s.term.string()
+						+ " from candidate: " + s.candidate_id.string()
+					)
+			end
 			_h.fail("mock leader should not get a vote request")
 		| let s: AppendEntriesRequest[DummyCommand] =>
 			_h.fail("mock leader should not get a vote append requests")
 		| let s: AppendEntriesResult =>
-			_h.env.out.print("got append result in mock leader: " + _leader_id.string())
+			if _debug then
+				_h.env.out.print("got append result in mock leader: " + _leader_id.string())
+			end
 		end
 
 	be lead_one() =>
@@ -330,6 +344,7 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 	"""
 
 	let _h: TestHelper
+	let _debug: Bool = false
 	let _mock_leader: _AppendMockLeader
 	var _seen_follower: Bool
 	var _count_append: U16
@@ -346,13 +361,13 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 	fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		match mode
 		| Follower =>
-			_h.env.out.print("got state Follower for term " + term.string())
+			if _debug then _h.env.out.print("got state Follower for term " + term.string()) end
 			_h.complete_action("got-follower-start")
 			if (not _seen_follower) then
-				_h.env.out.print("triggering mock lead one")
+				if _debug then _h.env.out.print("triggering mock lead one") end
 				_mock_leader.lead_one()
 			else
-				_h.env.out.print("already seen follower - _not_ triggering mock lead one")
+				if _debug then _h.env.out.print("already seen follower - _not_ triggering mock lead one") end
 			end
 			_seen_follower = true
 		| Candidate =>
@@ -379,20 +394,22 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 		, applied: Bool // true if these
 		) =>
 
-		_h.env.out.print("got append accept: " + applied.string()
-											+ " id: " + id.string()
-											+ " current_term: " + term.string()
-											+ " current_mode: " + mode.string()
-											+ " last_applied_index: " + last_applied_index.string()
-											+ " last_log_index: " + last_log_index.string()
+		if _debug then
+			_h.env.out.print("got append accept: " + applied.string()
+												+ " id: " + id.string()
+												+ " current_term: " + term.string()
+												+ " current_mode: " + mode.string()
+												+ " last_applied_index: " + last_applied_index.string()
+												+ " last_log_index: " + last_log_index.string()
 
-											+ " leader_term:" + leader_term.string()
-											+ " leader_id: " + leader_id.string()
-											+ " leader_commit_index:" + leader_commit_index.string()
-											+ " leader_prev_log_index:" + leader_prev_log_index.string()
-											+ " leader_prev_log_term:" + leader_prev_log_term.string()
-											+ " leader_entry_count:" + leader_entry_count.string()
-											)
+												+ " leader_term:" + leader_term.string()
+												+ " leader_id: " + leader_id.string()
+												+ " leader_commit_index:" + leader_commit_index.string()
+												+ " leader_prev_log_index:" + leader_prev_log_index.string()
+												+ " leader_prev_log_term:" + leader_prev_log_term.string()
+												+ " leader_entry_count:" + leader_entry_count.string()
+												)
+		end
 
 		_count_append = _count_append + 1
 		let pass: String = if applied then "success" else "failure" end
@@ -402,13 +419,13 @@ class iso FollowerAppendMonitor[T: Any val] is RaftServerMonitor[T]
 
 		match (_count_append, applied)
 		| (1, true) =>
-			_h.env.out.print("triggering mock lead two: " + token)
+			if _debug then _h.env.out.print("triggering mock lead two: " + token) end
 			_mock_leader.lead_two()
 		| (2, true) =>
-			_h.env.out.print("triggering mock lead three: " + token)
+			if _debug then _h.env.out.print("triggering mock lead three: " + token) end
 			_mock_leader.lead_three()
 		else
-			_h.env.out.print("no action after: " + token)
+			if _debug then _h.env.out.print("no action after: " + token) end
 		end
 
 		_h.complete_action(token)
@@ -438,8 +455,8 @@ class iso _TestWaitForHeartbeats is UnitTest
 		let peer_two_id: RaftId = 3 // another peer
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
-		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
+		let netmon = NopEgressMonitor[RaftId] // EnvEgressMonitor(h.env)
+		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](consume netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate-convert") // expecting RequestVote in the mock following this
 		h.expect_action("got-vote-request")
@@ -489,8 +506,8 @@ class iso _TestConvertToLeader is UnitTest
 		let peer_two_id: RaftId = 3 // another peer
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
-		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
+		let netmon = NopEgressMonitor[RaftId] // EnvEgressMonitor(h.env)
+		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](consume netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate-convert") // expecting RequestVote in the mock following this
 		h.expect_action("got-vote-request")
@@ -518,6 +535,7 @@ class iso _TestConvertToLeader is UnitTest
 
 class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 
+	let _debug: Bool = false
 	let _h: TestHelper
 	var _seen_follower: Bool
 	var _is_candidate: Bool
@@ -535,7 +553,7 @@ class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 	fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 		match mode
 		| Follower =>
-			_h.env.out.print("got state Follower for term " + term.string())
+			if _debug then _h.env.out.print("got state Follower for term " + term.string()) end
 			if _seen_follower and _is_candidate then
 				_h.fail("should not convert back to a follower")
 			else
@@ -543,17 +561,18 @@ class iso LeaderRaftServerMonitor[T: Any val] is RaftServerMonitor[T]
 			end
 			_seen_follower = true
 		| Candidate =>
-			_h.env.out.print("got state Candidate for term " + term.string())
+			if _debug then _h.env.out.print("got state Candidate for term " + term.string()) end
 			_is_candidate = true
 			_h.complete_action("got-candidate-convert")
 		| Leader =>
-			_h.env.out.print("got state Leader for term " + term.string())
+			if _debug then _h.env.out.print("got state Leader for term " + term.string()) end
 			_h.complete_action("got-leader-convert")
 		end
 
 actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
+	let _debug: Bool = false
 	let _egress: RaftEgress[DummyCommand,DummyResponse]
 	let _id: RaftId
 	var _seen_append: U16
@@ -567,10 +586,12 @@ actor GrantVoteMockRaftServer is RaftEndpoint[DummyCommand]
 	be apply(signal: RaftSignal[DummyCommand]) =>
 		match consume signal
 		| let s: VoteRequest =>
-			_h.env.out.print("got vote request in peer: " + _id.string()
-					+ " for term: " + s.term.string()
-					+ " from candidate: " + s.candidate_id.string()
-				)
+			if _debug then
+				_h.env.out.print("got vote request in peer: " + _id.string()
+						+ " for term: " + s.term.string()
+						+ " from candidate: " + s.candidate_id.string()
+					)
+			end
 			_h.complete_action("got-vote-request")
 
 			// reply and grant vote
@@ -613,6 +634,8 @@ class iso _TestConvertToFollower is UnitTest
 
 	fun name(): String => "raft:server:convert-to-follower"
 
+	fun box _debug(): Bool => false
+
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 
@@ -620,8 +643,8 @@ class iso _TestConvertToFollower is UnitTest
 		let listener_candidate_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
-		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
+		let netmon = NopEgressMonitor[RaftId] // EnvEgressMonitor(h.env)
+		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](consume netmon)
 		h.expect_action("got-follower-start")
 		h.expect_action("got-candidate") // expecting RequestVote in the mock
 		h.expect_action("got-vote-request")
@@ -630,13 +653,14 @@ class iso _TestConvertToFollower is UnitTest
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
 				let _h: TestHelper = h
+				let _d: Bool = _debug()
 				var _seen_follower: Bool = false
 				var _is_candidate: Bool = false
 				fun ref timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) => None
 				fun ref mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 					match mode
 					| Follower =>
-						_h.env.out.print("got state Follower for term " + term.string())
+						if _d then _h.env.out.print("got state Follower for term " + term.string()) end
 						if _seen_follower and _is_candidate then
 							h.complete_action("got-follower-convert")
 						else
@@ -644,7 +668,7 @@ class iso _TestConvertToFollower is UnitTest
 						end
 						_seen_follower = true
 					| Candidate =>
-						_h.env.out.print("got state Candidate for term " + term.string())
+						if _d then _h.env.out.print("got state Candidate for term " + term.string()) end
 						_is_candidate = true
 						_h.complete_action("got-candidate")
 					end
@@ -705,6 +729,8 @@ class iso _TestFailLowerTermAppend is UnitTest
 
 	fun name(): String => "raft:server:fail-lower-term-append"
 
+	fun box _debug():Bool => false
+
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 
@@ -712,7 +738,6 @@ class iso _TestFailLowerTermAppend is UnitTest
 		let listener_leader_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
 		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse]()
 		// NB don't call h.complete(...) if using "expect actions"
 		h.expect_action("got-append-false")
@@ -743,7 +768,7 @@ class iso _TestFailLowerTermAppend is UnitTest
 		append.leader_commit = 0
 		append.leader_id = listener_leader_id
 
-		h.env.out.print("sending append...")
+		if _debug() then h.env.out.print("sending append...") end
 		egress.emit(consume append)
 
 
@@ -779,6 +804,8 @@ class iso _TestWaitForCanvas is UnitTest
 
 	fun name(): String => "raft:server:canvas"
 
+	fun box _debug(): Bool => false
+
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 
@@ -786,7 +813,6 @@ class iso _TestWaitForCanvas is UnitTest
 		let listener_candidate_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
 		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse]()
 		// NB don't call h.complete(...) if using "expect actions"
 		h.expect_action("got-election-timeout")
@@ -797,6 +823,7 @@ class iso _TestWaitForCanvas is UnitTest
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
+				let _d: Bool = _debug()
 				let _h: TestHelper = h
 				fun box timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
 					match timeout
@@ -806,7 +833,7 @@ class iso _TestWaitForCanvas is UnitTest
 				fun box mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 					match mode
 					| (let m: Candidate) =>
-						_h.env.out.print("got state Candidate for term " + term.string())
+						if _d then _h.env.out.print("got state Candidate for term " + term.string()) end
 						_h.complete_action("got-candidate-state")
 					end
 			end
@@ -842,6 +869,8 @@ class iso _TestConvertToCandidate is UnitTest
 
 	fun name(): String => "raft:server:convert-to-candidate"
 
+	fun box _debug(): Bool => false
+
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 
@@ -849,7 +878,6 @@ class iso _TestConvertToCandidate is UnitTest
 		let listener_candidate_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
 		let egress:RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse]()
 		h.expect_action("got-timeout")
 		h.expect_action("got-state")
@@ -857,6 +885,7 @@ class iso _TestConvertToCandidate is UnitTest
 
 		// set up a monitor that logs to _env.out
 		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
+				let _d: Bool = _debug()
 				let _h: TestHelper = h
 				fun box timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) =>
 					if (timeout is ElectionTimeout) then
@@ -864,7 +893,7 @@ class iso _TestConvertToCandidate is UnitTest
 					end
 				fun box mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) =>
 					if (mode is Candidate) then
-						_h.env.out.print("got state Candidate for term " + term.string())
+						if _d then _h.env.out.print("got state Candidate for term " + term.string()) end
 						_h.complete_action("got-state")
 					end
 			end
@@ -929,6 +958,8 @@ class iso _TestRequestVote is UnitTest
 
 	fun ref tear_down(h: TestHelper) => None
 
+	fun ref _debug(): Bool => false
+
 	fun ref apply(h: TestHelper) =>
 		h.long_test(1_000_000_000)
 
@@ -936,26 +967,30 @@ class iso _TestRequestVote is UnitTest
 		let listener_candidate_id: RaftId = 2 // observer validating the replies
 
 		// create a network
-		let netmon = EnvEgressMonitor(h.env)
-		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](netmon)
+		let netmon = NopEgressMonitor[RaftId] // EnvEgressMonitor(h.env)
+		let egress: RaftEgress[DummyCommand,DummyResponse] = IntraProcessRaftServerEgress[DummyCommand,DummyResponse](consume netmon)
 
 		// set up a monitor that logs to _env.out
-		let mon: RaftServerMonitor[DummyCommand] iso = object iso is RaftServerMonitor[DummyCommand]
-				let _env: Env = h.env
-				fun box vote_req(id: RaftId, signal: VoteRequest val) => _env.out.print("vote req: " + id.string() + " term:" + signal.term.string())
-				fun box vote_res(id: RaftId, signal: VoteResponse val) => _env.out.print("vote res: " + id.string() + " term:" + signal.term.string())
-				fun box append_req(id: RaftId, signal: AppendEntriesRequest[DummyCommand] val) => _env.out.print("append req: " + id.string())
-				fun box append_res(id: RaftId, signal: AppendEntriesResult val) => _env.out.print("append res: " + id.string())
-				fun box install_req(id: RaftId, signal: InstallSnapshotRequest val) => _env.out.print("install req: " + id.string())
-				fun box install_res(id: RaftId, signal: InstallSnapshotResponse val) => _env.out.print("install res: " + id.string())
+		let mon: RaftServerMonitor[DummyCommand] iso = if _debug() then
+				object iso is RaftServerMonitor[DummyCommand]
+					let _env: Env = h.env
+					fun box vote_req(id: RaftId, signal: VoteRequest val) => _env.out.print("vote req: " + id.string() + " term:" + signal.term.string())
+					fun box vote_res(id: RaftId, signal: VoteResponse val) => _env.out.print("vote res: " + id.string() + " term:" + signal.term.string())
+					fun box append_req(id: RaftId, signal: AppendEntriesRequest[DummyCommand] val) => _env.out.print("append req: " + id.string())
+					fun box append_res(id: RaftId, signal: AppendEntriesResult val) => _env.out.print("append res: " + id.string())
+					fun box install_req(id: RaftId, signal: InstallSnapshotRequest val) => _env.out.print("install req: " + id.string())
+					fun box install_res(id: RaftId, signal: InstallSnapshotResponse val) => _env.out.print("install res: " + id.string())
 
-				fun box command_req(id: RaftId, term: RaftTerm, mode: RaftMode) => _env.out.print("command req: " + id.string())
-				fun box command_res(id: RaftId, term: RaftTerm, mode: RaftMode) => _env.out.print("command res: " + id.string())
+					fun box command_req(id: RaftId, term: RaftTerm, mode: RaftMode) => _env.out.print("command req: " + id.string())
+					fun box command_res(id: RaftId, term: RaftTerm, mode: RaftMode) => _env.out.print("command res: " + id.string())
 
-				fun box timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) => _env.out.print("timeout raised")
-				fun box mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) => _env.out.print("mode changed: " + mode.text() + " term:" + term.string())
-				fun ref failure(id: RaftId, term: RaftTerm, mode: RaftMode, msg: String) => _env.out.print("failure: raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string() + ";failure" + ";msg=" + msg)
-				fun ref warning(id: RaftId, term: RaftTerm, mode: RaftMode, msg: String) => _env.out.print("warning: raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string() + ";warning" + ";msg=" + msg)
+					fun box timeout_raised(id: RaftId, term: RaftTerm, mode: RaftMode, timeout: RaftTimeout) => _env.out.print("timeout raised")
+					fun box mode_changed(id: RaftId, term: RaftTerm, mode: RaftMode) => _env.out.print("mode changed: " + mode.text() + " term:" + term.string())
+					fun ref failure(id: RaftId, term: RaftTerm, mode: RaftMode, msg: String) => _env.out.print("failure: raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string() + ";failure" + ";msg=" + msg)
+					fun ref warning(id: RaftId, term: RaftTerm, mode: RaftMode, msg: String) => _env.out.print("warning: raft-"  + id.string() + ":term=" + term.string() + ";mode=" + mode.string() + ";warning" + ";msg=" + msg)
+				end
+			else
+				NopRaftServerMonitor[DummyCommand]
 			end
 
 		// register components that need to be shut down
@@ -979,7 +1014,7 @@ class iso _TestRequestVote is UnitTest
 		canvas.last_log_term = 0
 		canvas.candidate_id = listener_candidate_id
 
-		h.env.out.print("sending vote...")
+		if _debug() then h.env.out.print("sending vote...") end
 		egress.emit(consume canvas)
 
 primitive DummyCommand
@@ -1004,16 +1039,17 @@ class val EnvEgressMonitor is EgressMonitor[RaftId]
 actor ExpectVoteMockRaftServer is RaftEndpoint[DummyCommand]
 
 	let _h: TestHelper
+	let _debug: Bool = false
 
 	new create(h: TestHelper) =>
 		_h = h
 
 	be apply(signal: RaftSignal[DummyCommand]) =>
-		_h.env.out.print("mock got a signal")
+		if _debug then _h.env.out.print("mock got a signal") end
 		// VoteResponse.{term: U64, vote_granted: Bool}
 		match consume signal
 		| let s: VoteResponse =>
-			_h.env.out.print("mock got vote response, term: " + s.term.string())
+			if _debug then _h.env.out.print("mock got vote response, term: " + s.term.string()) end
 			_h.assert_true(s.vote_granted, "mock expected to get a vote")
 		else
 			_h.fail("mock got an unexpected signal")
