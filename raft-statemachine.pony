@@ -34,7 +34,7 @@ interface SimpleStateMachine[T: Any #send, U: Any #send = NopResponse]
 
 	fun ref accept(command: T): U^
 
-interface SnapshotSupport
+interface SnapshotSupport // FIXME - deprecated (see notes re reified snapshotting)
 	"""
 	Note, the raft server does not have a record of the state-machine's state. Therefore,
 	on restart, the state-machine is bootstrapped by replaying all of the commands in
@@ -42,7 +42,27 @@ interface SnapshotSupport
 
 	However, in order to optimise the bootstrap, raft supports snapshotting. However,
 	this depends on cooperation with the state-machine.
+
 	"""
+
+	/*
+	FIXME - we will rather move "snapshot" support into the standard command flow of
+	the statemachine.
+
+	That is, if the state-machine supports snapshots then it will provide the raft
+	with a reified/concrete "snapshot" command and a concrete "reset" command.
+
+	This will allow the state-machine to operate asynchronously, while retaining
+	raft safety.
+
+	Note the "restore" command does not need to be configured, or contrived. The
+	"restore" command is simply the response to the "snapshot" command.
+
+	Finally, this works together with the raft server exepecting a linear
+	command-response (1-for-1) with the state-machine. Any timeouts in the response
+	will be considered a error. Any unexpected responses will be considered a
+	error. On error, the raft will perform a volatile reset i.e. a simulated crash.
+	*/
 
 	fun ref has_snapshot_support(): Bool => false
 
