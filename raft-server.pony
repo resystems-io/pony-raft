@@ -426,6 +426,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		// initialise the persistent state
 		// TODO we will need to be able to pass in the persistent state
 		persistent.current_term = initial_term
+		persistent.voted_for = None
 
 		// set the processing to paused for sanity
 		// (see below for bootstrap via initial_processing)
@@ -442,15 +443,15 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 
 	be dispose() => _stop() // an alias for DisposableActor
 
-	be stop(ready: {():None}iso={()=>None} ) =>
+	be stop(ready: {ref ():None}iso={()=>None} ) =>
 		_stop() // note this really just calls _control()
 		ready()
 
-	be ctrl(one_ctrl: RaftControl, ready: {():None}iso={()=>None} ) =>
+	be ctrl(one_ctrl: RaftControl, ready: {ref ():None}iso={()=>None} ) =>
 		_control([as RaftControl: one_ctrl])
 		ready()
 
-	be control(ctls: Array[RaftControl] val, ready: {():None}iso={()=>None} ) =>
+	be control(ctls: Array[RaftControl] val, ready: {ref ():None}iso={()=>None} ) =>
 		"""
 		Perform any control operations listed.
 
@@ -596,6 +597,13 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		ires.target_candidate_id = votereq.candidate_id
 		ires.term = persistent.current_term
 		if votereq.term < persistent.current_term then
+			ifdef debug then
+				_monitor.debugging(_id, _current_term(), _current_mode(), "votereq grant=false (term behind);"
+					+ " votereq.term=" + votereq.term.string()
+					+ " votereq.candidate_id=" + votereq.candidate_id.string()
+					+ " persistent.voted_for=" + persistent.voted_for.string()
+					)
+			end
 			ires.vote_granted = false
 		else
 			// check if we could potentially vote for this candidate
@@ -607,13 +615,34 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 					// check if the candidate's log is at least as up-to-date as what we have here
 					if _peer_up_to_date(votereq.last_log_term, votereq.last_log_index) then
 							persistent.voted_for = votereq.candidate_id
+							ifdef debug then
+								_monitor.debugging(_id, _current_term(), _current_mode(), "votereq grant=true;"
+									+ " votereq.term=" + votereq.term.string()
+									+ " votereq.candidate_id=" + votereq.candidate_id.string()
+									+ " persistent.voted_for=" + persistent.voted_for.string()
+									)
+							end
 							true
 					else
 						// candidate is not up to date
+						ifdef debug then
+							_monitor.debugging(_id, _current_term(), _current_mode(), "votereq grant=false (candidate not up to date);"
+								+ " votereq.term=" + votereq.term.string()
+								+ " votereq.candidate_id=" + votereq.candidate_id.string()
+								+ " persistent.voted_for=" + persistent.voted_for.string()
+								)
+						end
 						false
 					end
 				else
 					// already voted for someone else
+					ifdef debug then
+						_monitor.debugging(_id, _current_term(), _current_mode(), "votereq grant=false (already voted);"
+							+ " votereq.term=" + votereq.term.string()
+							+ " votereq.candidate_id=" + votereq.candidate_id.string()
+							+ " persistent.voted_for=" + persistent.voted_for.string()
+							)
+					end
 					false
 				end
 		end
@@ -1127,7 +1156,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 						, update_log_index = index_to_apply
 					)
 
-				// right... we have not applied the log entry to the state-machine
+				// right... we have now applied the log entry to the state-machine
 				// (we can not increment last_applied)
 				volatile.last_applied = volatile.last_applied + 1 // yes, this is just index_to_apply
 
@@ -1182,6 +1211,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		Set the state to follower, but don't start any timers.
 		"""
 		leader = None // clear any potential leader state
+		persistent.voted_for = None // clear the voting since when updating the current term
 		persistent.current_term = term
 		_set_mode(Follower)
 
@@ -1316,7 +1346,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		// follower  - redirect command to the leader
 		//             (leader will reply, leader may provide backpressure)
 		// TODO
-		None
+		_monitor.warning(_id, _current_term(), _current_mode(), "follower received client command - not yet implemented")
 
 	fun ref _accept_command_as_candidate(command: CommandEnvelope[T]) =>
 		// candidate - queue the command until transitioning to being a leader or follower
@@ -1324,7 +1354,7 @@ actor RaftServer[T: Any val, U: Any val] is RaftEndpoint[T]
 		//             (send backpressure if the queue gets too large)
 		//             (batch queued message to the leader)
 		// TODO
-		None
+		_monitor.warning(_id, _current_term(), _current_mode(), "candidate received client command - not yet implemented")
 
 	fun ref _accept_command_as_leader(command: CommandEnvelope[T]) =>
 		// leader    - apply commands to the journal log and distribute them to followers
