@@ -6,7 +6,7 @@ This library implements the [Raft][raft] algorithm, for [Pony][pony-lang],
 following the Raft [paper][raft-paper].
 
 Please note, this is a still a young projects and this library has not yet been
-``battle tested.''
+"battle tested."
 
 ### Features:
 
