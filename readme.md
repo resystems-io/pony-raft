@@ -15,6 +15,12 @@ Please note, this is a still a young projects and this library has not yet been
 - Membership Changes: No
 - Log Compaction: No
 
+## Build
+
+```bash
+ponyc
+```
+
 [raft]: https://raft.github.io/ "The Raft Consensus Algorithm"
 [raft-paper]: https://raft.github.io/raft.pdf "In Search of an Understandable Consensus Algorithm"
 [pony-raft.png]:pony-raft.png "Pony Raft"
