@@ -10,7 +10,7 @@ Please note, this is a still a young projects and this library has not yet been
 
 ### Features:
 
-- Leader Election + Log Replication: YEs
+- Leader Election + Log Replication: Yes
 - Persistence: No
 - Membership Changes: No
 - Log Compaction: No
