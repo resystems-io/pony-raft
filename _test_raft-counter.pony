@@ -3,7 +3,7 @@
  * Copyright (c) 2021 - Stewart Gebbie. Licensed under the MIT licence.
  * vim: set ts=2 sw=0:
  */
-use "ponytest"
+use "pony_test"
 use "time"
 use "collections"
 
@@ -530,7 +530,7 @@ class iso _TestSansRaft is UnitTest
 		h.expect_action("source-1:end:ack=100")
 
 		// allocate a state machine and transit
-		let sm: CounterMachine iso^ = recover iso CounterMachine end
+		let sm: CounterMachine iso = recover iso CounterMachine end
 		let cem = object tag // router for the commands (combines egress and ingress)
 				let _sm: CounterMachine iso = consume sm
 				var _cl: (CounterClient | None) = None
@@ -700,18 +700,18 @@ class iso _TestSingleSourceNoFailures is UnitTest
 			end
 
 		// allocate server monitors
-		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff, chain = consume starter)
-		let rmon2: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
-		let rmon3: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
-		let rmon4: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
-		let rmon5: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon1: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff, chain = consume starter)
+		let rmon2: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon3: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon4: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon5: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff)
 
 		// allocate state machines
-		let sm1: CounterMachine iso^ = recover iso CounterMachine end
-		let sm2: CounterMachine iso^ = recover iso CounterMachine end
-		let sm3: CounterMachine iso^ = recover iso CounterMachine end
-		let sm4: CounterMachine iso^ = recover iso CounterMachine end
-		let sm5: CounterMachine iso^ = recover iso CounterMachine end
+		let sm1: CounterMachine iso = recover iso CounterMachine end
+		let sm2: CounterMachine iso = recover iso CounterMachine end
+		let sm3: CounterMachine iso = recover iso CounterMachine end
+		let sm4: CounterMachine iso = recover iso CounterMachine end
+		let sm5: CounterMachine iso = recover iso CounterMachine end
 
 		// configure client command routing
 		let nopmon: EgressMonitor[RaftId] = NopEgressMonitor[RaftId]
@@ -909,18 +909,18 @@ class iso _TestMultipleSourcesNoFailures is UnitTest
 		let peers: Array[RaftId] val = [as RaftId: 1;2;3;4;5]
 
 		// allocate server monitors
-		let rmon1: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff, chain = consume starter)
-		let rmon2: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
-		let rmon3: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
-		let rmon4: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
-		let rmon5: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon1: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff, chain = consume starter)
+		let rmon2: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon3: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon4: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff)
+		let rmon5: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where debug = _DebugOff)
 
 		// allocate state machines
-		let sm1: CounterMachine iso^ = recover iso CounterMachine end
-		let sm2: CounterMachine iso^ = recover iso CounterMachine end
-		let sm3: CounterMachine iso^ = recover iso CounterMachine end
-		let sm4: CounterMachine iso^ = recover iso CounterMachine end
-		let sm5: CounterMachine iso^ = recover iso CounterMachine end
+		let sm1: CounterMachine iso = recover iso CounterMachine end
+		let sm2: CounterMachine iso = recover iso CounterMachine end
+		let sm3: CounterMachine iso = recover iso CounterMachine end
+		let sm4: CounterMachine iso = recover iso CounterMachine end
+		let sm5: CounterMachine iso = recover iso CounterMachine end
 
 		// allocate raft servers
 		let initial_delay: U64 = 400_000_000 // 0.4 seconds for raft servers other than raft-1
@@ -1241,7 +1241,7 @@ class iso _TestOneRaftPauseResume is UnitTest
 			recover trn Array[RaftServer[CounterCommand, CounterTotal]](5) end
 		for raftid in Range[RaftId](1,6) do
 			// allocate server monitors
-			let rmon: RaftServerMonitor[CounterCommand] iso^ = if raftid == 1 then
+			let rmon: RaftServerMonitor[CounterCommand] iso = if raftid == 1 then
 				_CounterRaftMonitor(h where debug = _debug_level()
 					, chain = (starter = NopRaftServerMonitor[CounterCommand]))
 			elseif raftid == 3 then
@@ -1253,7 +1253,7 @@ class iso _TestOneRaftPauseResume is UnitTest
 			end
 
 			// allocate state machines
-			let sm: CounterMachine iso^ = recover iso CounterMachine end
+			let sm: CounterMachine iso = recover iso CounterMachine end
 
 			// allocate raft servers
 			let use_delay: U64 = if raftid == 1 then 0 else initial_delay end // we give raft1 a head start
@@ -1662,12 +1662,12 @@ class iso _TestMajorityRaftPauseResume is UnitTest
 			let ldetect = _LeaderDetectionMonitor(h, leader_controller, raft_proxy
 					where lower_term = 2, chain = consume lpause, debug = _debug_level())
 			// allocate server monitors
-			let rmon: RaftServerMonitor[CounterCommand] iso^ = _CounterRaftMonitor(h where
+			let rmon: RaftServerMonitor[CounterCommand] iso = _CounterRaftMonitor(h where
 				debug = _debug_level()
 				, chain = consume ldetect)
 
 			// allocate state machines
-			let sm: CounterMachine iso^ = recover iso CounterMachine end
+			let sm: CounterMachine iso = recover iso CounterMachine end
 
 			// allocate raft servers
 			let use_delay: U64 = if raftid == 1 then 0 else initial_delay end // we give raft1 a head start
